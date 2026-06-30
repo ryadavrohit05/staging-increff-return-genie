@@ -58,6 +58,8 @@ model ExternalApiConfig {
   id               String       @id @default(uuid())
   orgId            String       @unique @map("org_id")
   clientSlug       String       @map("client_slug") // e.g. adidasgcc → host + domain derived
+  // Increff platform → authDomainName suffix: ICC ⇒ {slug}-omni, PROXY ⇒ {slug}-oltp.
+  cimsPlatform     CimsPlatform @default(PROXY) @map("cims_platform")
   authUsername     String?      @map("auth_username") // optional override; else shared env username
   // AES-256-GCM ciphertext. Nullable: when absent, the shared backend password
   // (EXTERNAL_API_PASSWORD) is used — so onboarding need not collect a per-org
@@ -258,6 +260,11 @@ enum Marketplace {
 enum AutomationMode {
   AUTO_LOGIN
   MANUAL_LOGIN
+}
+
+enum CimsPlatform {
+  ICC
+  PROXY
 }
 
 enum SyncState {

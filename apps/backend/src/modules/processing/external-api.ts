@@ -1,4 +1,4 @@
-import { AppError, ErrorCode, type RowStatus } from '@rg/shared';
+import { AppError, ErrorCode, type RowStatus, type CimsPlatform } from '@rg/shared';
 import { env } from '../../env.js';
 import { prisma } from '../../lib/prisma.js';
 import { logger } from '../../lib/logger.js';
@@ -76,6 +76,13 @@ export function hostFromClient(client: string): string {
 export function domainFromClient(client: string): string {
   return env.EXTERNAL_API_DOMAIN_TEMPLATE.replace('{client}', client);
 }
+/**
+ * Platform-aware authDomainName: ICC ⇒ "{slug}-omni", PROXY ⇒ "{slug}-oltp".
+ * Used for per-org tenants; the env-default tenant keeps domainFromClient().
+ */
+export function domainForPlatform(client: string, platform: CimsPlatform): string {
+  return `${client}-${platform === 'ICC' ? 'omni' : 'oltp'}`;
+}
 
 function parseWebgetAuthHeaders(): Record<string, string> | null {
   const raw = env.WEBGET_AUTH_HEADERS;
@@ -100,10 +107,15 @@ function deriveConfig(opts: {
   webgetDbId: number;
   /** true ⇒ per-org tenant (resolve channel/fulfillment from oms_sub_orders). */
   useOmsResolution: boolean;
+  /** Per-org CIMS platform (ICC/PROXY). Omitted ⇒ env-default tenant (legacy domain). */
+  platform?: CimsPlatform;
 }): ResolvedExternalConfig {
   const client = opts.client;
   const authUsername = opts.usernameOverride || env.EXTERNAL_API_USERNAME;
   const webgetAuth = parseWebgetAuthHeaders();
+  const authDomainName = opts.platform
+    ? domainForPlatform(client, opts.platform)
+    : domainFromClient(client);
   return {
     client,
     baseUrl: hostFromClient(client),
@@ -111,7 +123,7 @@ function deriveConfig(opts: {
     authHeaders: {
       authUsername,
       authPassword: opts.password,
-      authDomainName: domainFromClient(client),
+      authDomainName,
     },
     clientId: opts.clientId,
     useOmsResolution: opts.useOmsResolution,
@@ -179,6 +191,7 @@ export async function resolveExternalConfig(orgId: string): Promise<ResolvedExte
       clientId: row.cimsClientId ?? env.CIMS_CLIENT_ID,
       webgetDbId: row.webgetDbId ?? env.WEBGET_DB_ID,
       useOmsResolution: true,
+      platform: row.cimsPlatform,
     });
   } else {
     // No per-org config → only the default tenant (Adidas) may use the env creds,

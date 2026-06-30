@@ -1,6 +1,12 @@
 import { useState, type FormEvent, type ReactNode } from 'react';
 import { useParams, useLocation, Link } from 'react-router-dom';
-import type { OrgSummary, DeviceInfo, AutomationMode, ExternalApiConfigInput } from '@rg/shared';
+import type {
+  OrgSummary,
+  DeviceInfo,
+  AutomationMode,
+  CimsPlatform,
+  ExternalApiConfigInput,
+} from '@rg/shared';
 import { PageHeader, ErrorNotice } from '../components/Layout';
 import { DataTable, type Column } from '../components/DataTable';
 import { StatusBadge } from '../components/StatusBadge';
@@ -122,11 +128,10 @@ function Stat({ label, value }: { label: string; value: ReactNode }) {
 
 interface ConfigForm {
   clientSlug: string;
+  platform: CimsPlatform;
   cimsClientId: string;
   webgetDbId: string;
   automationMode: AutomationMode;
-  authUsername: string;
-  authPassword: string;
   returnOrdersPath: string;
 }
 
@@ -147,11 +152,10 @@ function TenantConfig({ orgId }: { orgId: string }) {
   const startEdit = () => {
     setForm({
       clientSlug: config?.clientSlug ?? '',
+      platform: config?.platform ?? 'PROXY',
       cimsClientId: config ? String(config.cimsClientId) : '',
       webgetDbId: config ? String(config.webgetDbId) : '',
       automationMode: config?.automationMode ?? 'MANUAL_LOGIN',
-      authUsername: config?.authUsername ?? '',
-      authPassword: '',
       returnOrdersPath: config?.returnOrdersPath ?? '/cims/import/returnOrders',
     });
     setEditing(true);
@@ -165,12 +169,11 @@ function TenantConfig({ orgId }: { orgId: string }) {
     if (!form) return;
     const payload: ExternalApiConfigInput = {
       clientSlug: form.clientSlug,
+      platform: form.platform,
       cimsClientId: Number(form.cimsClientId),
       webgetDbId: Number(form.webgetDbId),
       automationMode: form.automationMode,
       returnOrdersPath: form.returnOrdersPath || '/cims/import/returnOrders',
-      ...(form.authUsername.trim() ? { authUsername: form.authUsername.trim() } : {}),
-      ...(form.authPassword ? { authPassword: form.authPassword } : {}),
     };
     try {
       await upsert.mutateAsync(payload);
@@ -188,15 +191,28 @@ function TenantConfig({ orgId }: { orgId: string }) {
   if (editing && form) {
     return (
       <form onSubmit={onSubmit} className="card space-y-3 px-4 py-4">
-        <div>
-          <label className="label">CIMS domain / client slug</label>
-          <input
-            className="input"
-            value={form.clientSlug}
-            onChange={(e) => setField('clientSlug', e.target.value.toLowerCase())}
-            pattern="[a-z0-9-]+"
-            required
-          />
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="label">CIMS client slug</label>
+            <input
+              className="input"
+              value={form.clientSlug}
+              onChange={(e) => setField('clientSlug', e.target.value.toLowerCase())}
+              pattern="[a-z0-9-]+"
+              required
+            />
+          </div>
+          <div>
+            <label className="label">Platform</label>
+            <select
+              className="input"
+              value={form.platform}
+              onChange={(e) => setField('platform', e.target.value as CimsPlatform)}
+            >
+              <option value="ICC">ICC</option>
+              <option value="PROXY">Proxy</option>
+            </select>
+          </div>
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
@@ -233,29 +249,6 @@ function TenantConfig({ orgId }: { orgId: string }) {
             <option value="AUTO_LOGIN">Auto login (stored credentials)</option>
           </select>
         </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="label">CIMS username (optional)</label>
-            <input
-              className="input"
-              value={form.authUsername}
-              onChange={(e) => setField('authUsername', e.target.value)}
-              placeholder="shared default"
-              autoComplete="off"
-            />
-          </div>
-          <div>
-            <label className="label">CIMS password</label>
-            <input
-              type="password"
-              className="input"
-              value={form.authPassword}
-              onChange={(e) => setField('authPassword', e.target.value)}
-              placeholder={config?.passwordSet ? '•••••• (unchanged)' : 'shared default'}
-              autoComplete="new-password"
-            />
-          </div>
-        </div>
         <div>
           <label className="label">Return orders path</label>
           <input
@@ -281,13 +274,13 @@ function TenantConfig({ orgId }: { orgId: string }) {
       {config ? (
         <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
           <ConfigRow label="Client slug" value={config.clientSlug} />
+          <ConfigRow label="Platform" value={config.platform} />
           <ConfigRow label="Automation mode" value={config.automationMode} />
           <ConfigRow label="CIMS clientId" value={String(config.cimsClientId)} />
           <ConfigRow label="Webget dbId" value={String(config.webgetDbId)} />
           <ConfigRow label="Base URL" value={config.baseUrl} />
           <ConfigRow label="Auth domain" value={config.authDomainName} />
           <ConfigRow label="Auth username" value={config.authUsername} />
-          <ConfigRow label="Password" value={config.passwordSet ? 'Set (encrypted)' : 'Shared default'} />
         </dl>
       ) : (
         <p className="text-sm text-slate-500">

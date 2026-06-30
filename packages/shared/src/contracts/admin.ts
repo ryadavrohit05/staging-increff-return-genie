@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { OrgStatus, LicenseStatus, Role, AutomationMode } from './common.js';
+import { OrgStatus, LicenseStatus, Role, AutomationMode, CimsPlatform } from './common.js';
 
 export const CreateOrgInput = z.object({
   name: z.string().min(2),
@@ -14,21 +14,20 @@ export const CreateOrgInput = z.object({
   // automation behavior. Provided once at onboarding; editable later via
   // PUT /admin/orgs/:id/external-api.
   //
-  // CIMS Domain / Client Slug — drives baseUrl (https://{slug}.omni.increff.com)
-  // and authDomainName ({slug}-oltp).
+  // CIMS client slug — drives baseUrl (https://{slug}.omni.increff.com) and the
+  // authDomainName, whose suffix depends on the platform below.
   clientSlug: z
     .string()
     .min(1)
     .regex(/^[a-z0-9-]+$/, 'lowercase letters, digits and hyphens only'),
+  // Increff platform → authDomainName suffix: ICC ⇒ {slug}-omni, PROXY ⇒ {slug}-oltp.
+  platform: CimsPlatform.default('PROXY'),
   // CIMS clientId — one org maps to exactly one clientId (never queried at runtime).
   cimsClientId: z.number().int().positive(),
   // Webget dbId — used for the dedup query AND the oms_sub_orders resolution.
   webgetDbId: z.number().int().positive(),
   // AUTO_LOGIN (Adidas-style) or MANUAL_LOGIN (default for new clients).
   automationMode: AutomationMode.default('MANUAL_LOGIN'),
-  // Optional per-org CIMS auth override; omitted ⇒ shared backend credentials.
-  cimsUsername: z.string().min(1).optional(),
-  cimsPassword: z.string().min(1).optional(),
 });
 export type CreateOrgInput = z.infer<typeof CreateOrgInput>;
 
@@ -89,22 +88,21 @@ export const ExternalApiConfigInput = z.object({
     .string()
     .min(1)
     .regex(/^[a-z0-9-]+$/, 'lowercase letters, digits and hyphens only'), // e.g. adidasgcc
+  platform: CimsPlatform.default('PROXY'),
   cimsClientId: z.number().int().positive(),
   webgetDbId: z.number().int().positive(),
   automationMode: AutomationMode.default('MANUAL_LOGIN'),
-  authUsername: z.string().min(1).optional(), // optional override of the shared username
-  // Write-only. Omit on edit to keep the existing password (or the shared default).
-  authPassword: z.string().min(1).optional(),
   returnOrdersPath: z.string().default('/cims/import/returnOrders'),
 });
 export type ExternalApiConfigInput = z.infer<typeof ExternalApiConfigInput>;
 
-/** Safe view returned to the admin portal — password is masked, never sent back. */
+/** Safe view returned to the admin portal — credentials are never sent back. */
 export const ExternalApiConfigView = z.object({
   clientSlug: z.string(),
+  platform: CimsPlatform,
   baseUrl: z.string(), // derived, for display
   authDomainName: z.string(), // derived, for display
-  authUsername: z.string(), // effective (override or shared)
+  authUsername: z.string(), // effective (shared)
   cimsClientId: z.number().int(),
   webgetDbId: z.number().int(),
   automationMode: AutomationMode,

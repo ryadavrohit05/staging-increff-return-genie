@@ -24,6 +24,15 @@ export type LicenseStatus = z.infer<typeof LicenseStatus>;
 export const AutomationMode = z.enum(['AUTO_LOGIN', 'MANUAL_LOGIN']);
 export type AutomationMode = z.infer<typeof AutomationMode>;
 
+/**
+ * Which Increff platform the tenant's CIMS lives on — determines the
+ * `authDomainName` suffix derived from the client slug:
+ *   ICC   → "{slug}-omni"
+ *   PROXY → "{slug}-oltp"
+ */
+export const CimsPlatform = z.enum(['ICC', 'PROXY']);
+export type CimsPlatform = z.infer<typeof CimsPlatform>;
+
 export const DeviceStatus = z.enum(['ACTIVE', 'REVOKED']);
 export type DeviceStatus = z.infer<typeof DeviceStatus>;
 

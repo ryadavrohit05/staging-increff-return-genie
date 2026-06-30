@@ -26,11 +26,10 @@ import { signedUrl, uploadArtifact, createSignedUploadUrl } from '../../services
 
 // Installer uploads can be large; allow up to 300 MB in memory.
 const installerUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 300 * 1024 * 1024 } });
-import { encryptSecret } from '../../lib/crypto.js';
 import {
   invalidateExternalConfig,
   hostFromClient,
-  domainFromClient,
+  domainForPlatform,
 } from '../processing/external-api.js';
 import { env } from '../../env.js';
 
@@ -91,8 +90,7 @@ adminRouter.post(
         data: {
           orgId,
           clientSlug: input.clientSlug,
-          authUsername: input.cimsUsername ?? null,
-          authPasswordEnc: input.cimsPassword ? encryptSecret(input.cimsPassword) : null,
+          cimsPlatform: input.platform,
           cimsClientId: input.cimsClientId,
           webgetDbId: input.webgetDbId,
         },
@@ -130,6 +128,7 @@ adminRouter.post(
         ownerEmail: input.ownerEmail,
         plan: DEFAULT_PLAN,
         clientSlug: input.clientSlug,
+        platform: input.platform,
         cimsClientId: input.cimsClientId,
         webgetDbId: input.webgetDbId,
         automationMode: input.automationMode,
@@ -380,8 +379,9 @@ adminRouter.get(
     }
     const view: ExternalApiConfigView = {
       clientSlug: cfg.clientSlug,
+      platform: cfg.cimsPlatform,
       baseUrl: hostFromClient(cfg.clientSlug),
-      authDomainName: domainFromClient(cfg.clientSlug),
+      authDomainName: domainForPlatform(cfg.clientSlug, cfg.cimsPlatform),
       authUsername: cfg.authUsername ?? env.EXTERNAL_API_USERNAME,
       cimsClientId: cfg.cimsClientId ?? env.CIMS_CLIENT_ID,
       webgetDbId: cfg.webgetDbId ?? env.WEBGET_DB_ID,
@@ -404,27 +404,22 @@ adminRouter.put(
     const org = await prisma.organization.findUnique({ where: { id } });
     if (!org) throw new AppError(ErrorCode.LIC_NOT_FOUND, 'Org not found');
 
-    // Password is write-only: encrypt + set it only when provided; otherwise keep
-    // the existing per-org secret (or the shared backend password when none).
-    const authPasswordEnc = input.authPassword ? encryptSecret(input.authPassword) : undefined;
     await prisma.externalApiConfig.upsert({
       where: { orgId: id },
       create: {
         orgId: id,
         clientSlug: input.clientSlug,
-        authUsername: input.authUsername ?? null,
-        authPasswordEnc: authPasswordEnc ?? null,
+        cimsPlatform: input.platform,
         cimsClientId: input.cimsClientId,
         webgetDbId: input.webgetDbId,
         returnOrdersPath: input.returnOrdersPath,
       },
       update: {
         clientSlug: input.clientSlug,
-        authUsername: input.authUsername ?? null,
+        cimsPlatform: input.platform,
         cimsClientId: input.cimsClientId,
         webgetDbId: input.webgetDbId,
         returnOrdersPath: input.returnOrdersPath,
-        ...(authPasswordEnc ? { authPasswordEnc } : {}),
       },
     });
     // Automation mode lives on the organization (read by the desktop at runtime).
@@ -434,7 +429,6 @@ adminRouter.put(
     });
     invalidateExternalConfig(id);
 
-    // Audit WITHOUT the password.
     await audit({
       actorId: actorId(req),
       action: 'external-api.update',
@@ -442,6 +436,7 @@ adminRouter.put(
       target: input.clientSlug,
       meta: {
         clientSlug: input.clientSlug,
+        platform: input.platform,
         baseUrl: hostFromClient(input.clientSlug),
         cimsClientId: input.cimsClientId,
         webgetDbId: input.webgetDbId,
