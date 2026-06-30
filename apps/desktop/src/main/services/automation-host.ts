@@ -26,6 +26,7 @@ import {
   type SyncEvent,
   type SyncStartInput,
   type SyncSummary,
+  type OrgConfigView,
 } from '@rg/shared';
 import { CH } from '@rg/shared';
 import { config } from '../config.js';
@@ -363,18 +364,36 @@ export async function startSync(
     throw new AppError(ErrorCode.VALIDATION_FAILED, 'A sync is already running.');
   }
 
-  // 1. Load marketplace credentials (in-memory only).
-  const credentials = await loadCred(input.marketplace);
+  // 1. Resolve this org's automation mode (server-authoritative, non-secret).
+  //    Default to AUTO_LOGIN so a transient fetch failure preserves the original
+  //    behavior for the env-default tenant.
+  let automationMode: OrgConfigView['automationMode'] = 'AUTO_LOGIN';
+  try {
+    const orgCfg = await apiClient.get<OrgConfigView>('/app/org-config');
+    automationMode = orgCfg.automationMode;
+  } catch (err) {
+    log.warn('Could not fetch org config; defaulting to AUTO_LOGIN', {
+      err: err instanceof Error ? err.message : String(err),
+    });
+  }
 
-  // 2. Create the backend run record.
+  // 2. Load marketplace credentials (in-memory only) — ONLY for AUTO_LOGIN.
+  //    MANUAL_LOGIN needs no stored credentials; the user signs in by hand.
+  let credentials: { email: string; password: string } | undefined;
+  if (automationMode === 'AUTO_LOGIN') {
+    credentials = await loadCred(input.marketplace);
+  }
+
+  // 3. Create the backend run record.
   const { syncRunId } = await apiClient.post<{ syncRunId: string }>('/sync/runs', input);
 
-  // 3. Build the (serializable) job.
+  // 4. Build the (serializable) job.
   const job: SerializableJob = {
     syncRunId,
     marketplace: input.marketplace,
     startDate: input.startDate,
     endDate: input.endDate,
+    automationMode,
     credentials,
     downloadDir: downloadDir(syncRunId),
     screenshotDir: screenshotDir(syncRunId),

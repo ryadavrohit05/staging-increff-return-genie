@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   buildCimsPayload,
   buildCimsGroupPayload,
+  buildCimsResolvedPayload,
   classifyCimsResponse,
   hostFromClient,
   domainFromClient,
@@ -14,6 +15,8 @@ const cfg: ResolvedExternalConfig = {
   baseUrl: 'https://adidasgcc.omni.increff.com',
   returnOrdersPath: '/cims/import/returnOrders',
   authHeaders: { authUsername: 'adidasgcc-system.user', authPassword: 'x', authDomainName: 'adidasgcc-oltp' },
+  clientId: 1100149303,
+  useOmsResolution: false,
   cims: {
     omsLocationId: 1100149519,
     fulfillmentLocationCode: '8713-1',
@@ -29,6 +32,18 @@ const cfg: ResolvedExternalConfig = {
     idColumn: 'channel_order_id',
     channelColumn: 'channel_id',
     channelId: 'MYNTRAV4',
+    authHeaders: null,
+    timeoutMs: 120000,
+    batchSize: 3000,
+  },
+  oms: {
+    url: 'https://saas.increff.com/webget/in/api/app/sql/result',
+    schema: 'oms',
+    dbId: 559,
+    table: 'oms_sub_orders',
+    idColumn: 'channel_order_id',
+    fulfillmentColumn: 'fulfillmentLocationCode',
+    channelColumn: 'channel_id',
     authHeaders: null,
     timeoutMs: 120000,
     batchSize: 3000,
@@ -102,6 +117,34 @@ describe('buildCimsGroupPayload (multi-item return order → one request, many f
     expect(p.forms).toHaveLength(2);
     expect(p.forms.map((f) => f.channelOrderId)).toEqual(['uuid-1', 'uuid-2']);
     expect(p.forms.map((f) => f.channelSku)).toEqual(['A', 'B']);
+  });
+});
+
+describe('buildCimsResolvedPayload (multi-tenant: channel/fulfillment from OMS)', () => {
+  it('uses clientId from config and channelId/fulfillment from OMS; omsLocationId === fulfillment', () => {
+    const rows = [
+      row({ sellerOrderId: 'o-1', channelReturnOrderId: 'RET-9', sellerSkuCode: 'A' }),
+      row({ sellerOrderId: 'o-2', channelReturnOrderId: 'RET-9', sellerSkuCode: 'B' }),
+    ];
+    const payload = buildCimsResolvedPayload(rows, {
+      clientId: 555,
+      channelId: 'CH-NORTH',
+      fulfillmentLocationCode: 'WH-7',
+    }) as {
+      omsLocationId: string;
+      fulfillmentLocationCode: string;
+      clientId: number;
+      channelId: string;
+      channelReturnOrderId: string;
+      forms: Array<{ channelOrderId: string; channelSku: string }>;
+    };
+    expect(payload.clientId).toBe(555);
+    expect(payload.channelId).toBe('CH-NORTH');
+    expect(payload.fulfillmentLocationCode).toBe('WH-7');
+    // omsLocationId is ALWAYS equal to fulfillmentLocationCode (no separate lookup).
+    expect(payload.omsLocationId).toBe('WH-7');
+    expect(payload.channelReturnOrderId).toBe('RET-9');
+    expect(payload.forms.map((f) => f.channelOrderId)).toEqual(['o-1', 'o-2']);
   });
 });
 

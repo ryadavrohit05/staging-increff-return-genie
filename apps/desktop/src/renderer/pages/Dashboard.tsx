@@ -29,7 +29,7 @@ function todayMinus(n: number): string {
 
 export function Dashboard() {
   const sync = useSync();
-  const { creds, license, refreshCreds, refreshLicense } = useSettings();
+  const { creds, license, orgConfig, refreshCreds, refreshLicense, refreshOrgConfig } = useSettings();
 
   const [marketplace, setMarketplace] = useState<Marketplace | ''>('');
   const [startDate, setStartDate] = useState(todayMinus(2));
@@ -42,6 +42,7 @@ export function Dashboard() {
   useEffect(() => {
     void refreshCreds();
     void refreshLicense();
+    void refreshOrgConfig();
     // Tray "Sync now" focuses this page; nothing else to do here.
     const off = ipc.app.onSyncNow(() => {});
     return off;
@@ -64,6 +65,9 @@ export function Dashboard() {
     [creds],
   );
   const selectedConfigured = credFor(marketplace)?.configured ?? false;
+  // MANUAL_LOGIN tenants sign in by hand — no stored marketplace credentials needed.
+  const manualMode = orgConfig?.automationMode === 'MANUAL_LOGIN';
+  const credsSatisfied = manualMode || selectedConfigured;
   const licenseOk = license?.ok ?? true; // optimistic until validate resolves
   const updateRequired = license?.updateRequired ?? false;
 
@@ -89,7 +93,7 @@ export function Dashboard() {
   }
 
   const startDisabled =
-    sync.running || !marketplace || !selectedConfigured || !licenseOk || updateRequired;
+    sync.running || !marketplace || !credsSatisfied || !licenseOk || updateRequired;
 
   return (
     <div className="flex flex-col gap-5">
@@ -171,7 +175,15 @@ export function Dashboard() {
               </div>
 
               {/* Gating notices */}
-              {marketplace && !selectedConfigured && (
+              {marketplace && manualMode && (
+                <div className="mt-4 rounded-sm border border-primary/25 bg-slate-50 px-3 py-2 text-[0.78rem] text-ink-secondary">
+                  Manual login is enabled for your organization. When you start, a
+                  browser opens — sign in to {marketplace} yourself and open the Seller
+                  Returns Report page; automation resumes automatically. No saved
+                  credentials are required.
+                </div>
+              )}
+              {marketplace && !manualMode && !selectedConfigured && (
                 <div className="mt-4 rounded-sm border border-warning/25 bg-warning-light px-3 py-2 text-[0.78rem] text-amber-700">
                   No credentials saved for {marketplace}.{' '}
                   <Link to="/settings" className="font-bold underline">

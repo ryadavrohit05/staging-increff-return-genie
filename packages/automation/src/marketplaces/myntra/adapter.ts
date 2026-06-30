@@ -39,7 +39,8 @@ export class MyntraAdapter implements MarketplaceAdapter {
 
   async run(page: Page, job: AdapterJob, emit: EmitFn): Promise<AdapterResult> {
     const log = createLogger(STAGE, emit);
-    const { startDate, endDate, email, password, downloadDir, screenshotDir, signal } = job;
+    const { startDate, endDate, email, password, downloadDir, screenshotDir, signal, automationMode } =
+      job;
 
     const store = DEFAULTS.store;
     const partnerType = DEFAULTS.partnerType;
@@ -81,10 +82,22 @@ export class MyntraAdapter implements MarketplaceAdapter {
         );
       }
 
-      // ── Step 3: fresh login (always, unless already on reports) ─────────
+      // ── Step 3: reach the reports page ─────────────────────────────────
+      // Two paths converge on the SAME reports-page state; everything after is
+      // identical. AUTO_LOGIN drives the login form; MANUAL_LOGIN hands the
+      // browser to the user and waits until they reach the report page.
       if (state === 'reports') {
         log.info('Already on reports page (unexpected but OK).');
+      } else if (automationMode === 'MANUAL_LOGIN') {
+        emit({ type: 'phase', ts: Date.now(), phase: SyncPhase.MYNTRA_AWAITING_MANUAL_LOGIN });
+        log.info(
+          'Manual login mode — please sign in to Myntra in the open browser and ' +
+            'navigate to the Seller Returns Report page. Automation will resume automatically.',
+        );
+        // Poll for the reports page for as long as a human reasonably needs.
+        await waitForReportsPage(page, MyntraConfig.manualLoginTimeoutMs, screenshotDir, emit);
       } else {
+        // AUTO_LOGIN — original behavior, unchanged.
         emit({ type: 'phase', ts: Date.now(), phase: SyncPhase.MYNTRA_LOGGING_IN });
         await performLogin(page, email, password, screenshotDir, emit);
         throwIfAborted(signal);

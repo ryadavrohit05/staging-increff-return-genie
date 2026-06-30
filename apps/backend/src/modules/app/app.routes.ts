@@ -1,7 +1,14 @@
 import { Router, type Request, type Response } from 'express';
-import { AppError, ErrorCode, type ReleaseInfo, type DownloadTicket } from '@rg/shared';
+import {
+  AppError,
+  ErrorCode,
+  type ReleaseInfo,
+  type DownloadTicket,
+  type OrgConfigView,
+} from '@rg/shared';
 import { asyncHandler } from '../../middleware/error.js';
 import { requireAuth } from '../../middleware/auth.js';
+import { requireTenant, ctxOf } from '../../middleware/tenant.js';
 import { prisma } from '../../lib/prisma.js';
 import { signedUrl } from '../../services/storage.js';
 import { evaluateLicense } from '../licenses/license.service.js';
@@ -23,6 +30,29 @@ function latestInstaller() {
     orderBy: { releasedAt: 'desc' },
   });
 }
+
+// GET /app/org-config — the caller's NON-SECRET per-org runtime config.
+// The desktop reads this to decide AUTO_LOGIN vs MANUAL_LOGIN. It NEVER returns
+// CIMS credentials, clientId, or dbId — those stay server-side.
+appRouter.get(
+  '/org-config',
+  requireTenant,
+  asyncHandler(async (req: Request, res: Response) => {
+    const ctx = ctxOf(req);
+    const org = await prisma.organization.findUnique({
+      where: { id: ctx.orgId },
+      select: { id: true, slug: true, name: true, automationMode: true },
+    });
+    if (!org) throw new AppError(ErrorCode.LIC_NOT_FOUND, 'Organization not found');
+    const view: OrgConfigView = {
+      orgId: org.id,
+      slug: org.slug,
+      name: org.name,
+      automationMode: org.automationMode,
+    };
+    res.json(view);
+  }),
+);
 
 // GET /app/version/latest — latest installer release info (any authed user).
 appRouter.get(

@@ -25,7 +25,10 @@ export interface AutomationJob {
   marketplace: 'MYNTRA' | 'FLIPKART';
   startDate: string; // YYYY-MM-DD
   endDate: string; // YYYY-MM-DD
-  credentials: { email: string; password: string };
+  /** AUTO_LOGIN (uses credentials) or MANUAL_LOGIN (user signs in by hand). */
+  automationMode: 'AUTO_LOGIN' | 'MANUAL_LOGIN';
+  /** Required for AUTO_LOGIN; omitted/ignored for MANUAL_LOGIN. */
+  credentials?: { email: string; password: string };
   headless?: boolean; // default false (headful so client watches)
   downloadDir: string; // absolute path provided by caller
   screenshotDir: string; // absolute path for failure snapshots
@@ -72,8 +75,17 @@ export async function runAutomation(
   const stage = job.marketplace === 'MYNTRA' ? '[Myntra]' : '[Flipkart]';
   const log = createLogger(stage, onEvent);
 
-  // Register secrets up front so nothing in any log line can leak them.
-  registerSecrets(job.credentials.email, job.credentials.password);
+  // AUTO_LOGIN requires credentials; MANUAL_LOGIN must not. Validate up front.
+  const hasCreds = Boolean(job.credentials?.email && job.credentials?.password);
+  if (job.automationMode === 'AUTO_LOGIN' && !hasCreds) {
+    throw new AppError(
+      ErrorCode.AUTO_LOGIN_FAILED,
+      'AUTO_LOGIN requires stored marketplace credentials, but none were provided.',
+    );
+  }
+
+  // Register secrets up front so nothing in any log line can leak them (AUTO only).
+  if (job.credentials) registerSecrets(job.credentials.email, job.credentials.password);
 
   const adapter = ADAPTERS[job.marketplace];
   if (!adapter) {
@@ -111,8 +123,9 @@ export async function runAutomation(
       syncRunId: job.syncRunId,
       startDate: job.startDate,
       endDate: job.endDate,
-      email: job.credentials.email,
-      password: job.credentials.password,
+      automationMode: job.automationMode,
+      email: job.credentials?.email ?? '',
+      password: job.credentials?.password ?? '',
       downloadDir: job.downloadDir,
       screenshotDir: job.screenshotDir,
       signal: job.signal,

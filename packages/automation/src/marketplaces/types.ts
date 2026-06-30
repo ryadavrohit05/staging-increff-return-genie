@@ -12,6 +12,13 @@ export interface AdapterJob {
   syncRunId: string;
   startDate: string; // YYYY-MM-DD
   endDate: string; // YYYY-MM-DD
+  /**
+   * AUTO_LOGIN: the adapter logs in with `email`/`password`.
+   * MANUAL_LOGIN: the adapter skips login and waits for the user to sign in by
+   * hand, then resumes once the reports page is detected. `email`/`password` are
+   * empty in this mode.
+   */
+  automationMode: 'AUTO_LOGIN' | 'MANUAL_LOGIN';
   email: string;
   password: string;
   downloadDir: string;

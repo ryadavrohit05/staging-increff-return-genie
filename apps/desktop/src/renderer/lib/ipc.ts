@@ -50,6 +50,7 @@ export const ipc = {
   },
   app: {
     version: async () => unwrap(await rg().app.version()),
+    orgConfig: async () => unwrap(await rg().app.orgConfig()),
     onUpdate: (cb: Parameters<Window['rg']['app']['onUpdate']>[0]) => rg().app.onUpdate(cb),
     installUpdate: async () => unwrap(await rg().app.installUpdate()),
     openExternal: async (url: string) => unwrap(await rg().app.openExternal(url)),

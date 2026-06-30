@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import type { CreateOrgInput, OrgSummary, OrgStatus } from '@rg/shared';
+import type { CreateOrgInput, OrgSummary, OrgStatus, AutomationMode } from '@rg/shared';
 import { PageHeader, ErrorNotice } from '../components/Layout';
 import { DataTable, type Column } from '../components/DataTable';
 import { Pagination } from '../components/Pagination';
@@ -114,24 +114,60 @@ export function Clients() {
   );
 }
 
+interface OrgForm {
+  name: string;
+  slug: string;
+  maxDevices: number;
+  ownerEmail: string;
+  password: string;
+  clientSlug: string;
+  cimsClientId: string;
+  webgetDbId: string;
+  automationMode: AutomationMode;
+  cimsUsername: string;
+  cimsPassword: string;
+}
+
+const EMPTY_ORG_FORM: OrgForm = {
+  name: '',
+  slug: '',
+  maxDevices: 2,
+  ownerEmail: '',
+  password: '',
+  clientSlug: '',
+  cimsClientId: '',
+  webgetDbId: '',
+  automationMode: 'MANUAL_LOGIN',
+  cimsUsername: '',
+  cimsPassword: '',
+};
+
 function CreateOrgModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const create = useCreateOrg();
   const toast = useToast();
-  const [form, setForm] = useState<CreateOrgInput>({
-    name: '',
-    slug: '',
-    maxDevices: 2,
-    ownerEmail: '',
-    password: '',
-  });
+  const [form, setForm] = useState<OrgForm>(EMPTY_ORG_FORM);
 
-  const set = <K extends keyof CreateOrgInput>(k: K, v: CreateOrgInput[K]) =>
+  const set = <K extends keyof OrgForm>(k: K, v: OrgForm[K]) =>
     setForm((f) => ({ ...f, [k]: v }));
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    await create.mutateAsync(form);
+    const payload: CreateOrgInput = {
+      name: form.name,
+      slug: form.slug,
+      maxDevices: form.maxDevices,
+      ownerEmail: form.ownerEmail,
+      password: form.password,
+      clientSlug: form.clientSlug,
+      cimsClientId: Number(form.cimsClientId),
+      webgetDbId: Number(form.webgetDbId),
+      automationMode: form.automationMode,
+      ...(form.cimsUsername.trim() ? { cimsUsername: form.cimsUsername.trim() } : {}),
+      ...(form.cimsPassword ? { cimsPassword: form.cimsPassword } : {}),
+    };
+    await create.mutateAsync(payload);
     toast.success('Client created', `${form.name} · owner can sign in`);
+    setForm(EMPTY_ORG_FORM);
     onClose();
   };
 
@@ -220,6 +256,99 @@ function CreateOrgModal({ open, onClose }: { open: boolean; onClose: () => void 
             onChange={(e) => set('maxDevices', Number(e.target.value))}
           />
         </div>
+
+        <div className="border-t border-slate-200 pt-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Tenant configuration
+          </p>
+        </div>
+
+        <div>
+          <label className="label">CIMS domain / client slug</label>
+          <input
+            className="input"
+            value={form.clientSlug}
+            onChange={(e) => set('clientSlug', e.target.value.toLowerCase())}
+            pattern="[a-z0-9-]+"
+            placeholder="adidasgcc"
+            required
+          />
+          <p className="mt-1 text-xs text-slate-400">
+            Drives the CIMS URL (https://{form.clientSlug || 'slug'}.omni.increff.com) and domain (
+            {(form.clientSlug || 'slug') + '-oltp'}).
+          </p>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="label">CIMS clientId</label>
+            <input
+              type="number"
+              min={1}
+              className="input"
+              value={form.cimsClientId}
+              onChange={(e) => set('cimsClientId', e.target.value)}
+              placeholder="1100149303"
+              required
+            />
+          </div>
+          <div>
+            <label className="label">Webget dbId</label>
+            <input
+              type="number"
+              min={1}
+              className="input"
+              value={form.webgetDbId}
+              onChange={(e) => set('webgetDbId', e.target.value)}
+              placeholder="162"
+              required
+            />
+          </div>
+        </div>
+
+        <div>
+          <label className="label">Automation mode</label>
+          <select
+            className="input"
+            value={form.automationMode}
+            onChange={(e) => set('automationMode', e.target.value as AutomationMode)}
+          >
+            <option value="MANUAL_LOGIN">Manual login (user signs in)</option>
+            <option value="AUTO_LOGIN">Auto login (stored credentials)</option>
+          </select>
+          <p className="mt-1 text-xs text-slate-400">
+            Manual login is recommended for most clients; auto login is for tenants whose
+            marketplace sign-in can be automated.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="label">CIMS username (optional)</label>
+            <input
+              className="input"
+              value={form.cimsUsername}
+              onChange={(e) => set('cimsUsername', e.target.value)}
+              placeholder="shared default"
+              autoComplete="off"
+            />
+          </div>
+          <div>
+            <label className="label">CIMS password (optional)</label>
+            <input
+              type="password"
+              className="input"
+              value={form.cimsPassword}
+              onChange={(e) => set('cimsPassword', e.target.value)}
+              placeholder="shared default"
+              autoComplete="new-password"
+            />
+          </div>
+        </div>
+        <p className="text-xs text-slate-400">
+          Leave CIMS username/password blank to use the shared backend credentials. The
+          password is encrypted at rest and never shown again.
+        </p>
       </form>
     </Modal>
   );

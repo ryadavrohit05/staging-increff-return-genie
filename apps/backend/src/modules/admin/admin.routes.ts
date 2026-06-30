@@ -64,11 +64,20 @@ adminRouter.post(
     const existing = await prisma.organization.findUnique({ where: { slug: input.slug } });
     if (existing) throw new AppError(ErrorCode.VALIDATION_FAILED, 'Slug already in use');
 
-    // 1. Create the org + license atomically.
+    // 1. Create the org + license + tenant CIMS/Webget config atomically. The
+    //    config row is what puts a new tenant on the multi-tenant path (per-org
+    //    clientId/dbId + OMS channel/fulfillment resolution). Password is stored
+    //    AES-256-GCM-encrypted, or left null to use the shared backend password.
     const orgId = crypto.randomUUID();
     await prisma.$transaction([
       prisma.organization.create({
-        data: { id: orgId, name: input.name, slug: input.slug, maxDevices: input.maxDevices },
+        data: {
+          id: orgId,
+          name: input.name,
+          slug: input.slug,
+          maxDevices: input.maxDevices,
+          automationMode: input.automationMode,
+        },
       }),
       prisma.license.create({
         data: {
@@ -76,6 +85,16 @@ adminRouter.post(
           plan: DEFAULT_PLAN,
           maxDevices: input.maxDevices,
           validUntil: NEVER_EXPIRES,
+        },
+      }),
+      prisma.externalApiConfig.create({
+        data: {
+          orgId,
+          clientSlug: input.clientSlug,
+          authUsername: input.cimsUsername ?? null,
+          authPasswordEnc: input.cimsPassword ? encryptSecret(input.cimsPassword) : null,
+          cimsClientId: input.cimsClientId,
+          webgetDbId: input.webgetDbId,
         },
       }),
     ]);
@@ -89,7 +108,9 @@ adminRouter.post(
       app_metadata: { org_id: orgId, role: 'OWNER' },
     });
     if (error || !data.user) {
-      // Roll back the org/license so we don't strand a half-created tenant.
+      // Roll back the org/license/config so we don't strand a half-created tenant.
+      // Order matters: delete FK children (config, license) before the org.
+      await prisma.externalApiConfig.deleteMany({ where: { orgId } });
       await prisma.license.deleteMany({ where: { orgId } });
       await prisma.organization.delete({ where: { id: orgId } }).catch(() => undefined);
       throw new AppError(ErrorCode.INTERNAL, `Failed to create owner: ${error?.message ?? 'unknown'}`);
@@ -105,7 +126,14 @@ adminRouter.post(
       action: 'org.create',
       orgId,
       target: input.slug,
-      meta: { ownerEmail: input.ownerEmail, plan: DEFAULT_PLAN },
+      meta: {
+        ownerEmail: input.ownerEmail,
+        plan: DEFAULT_PLAN,
+        clientSlug: input.clientSlug,
+        cimsClientId: input.cimsClientId,
+        webgetDbId: input.webgetDbId,
+        automationMode: input.automationMode,
+      },
     });
 
     res.status(201).json({ orgId, ownerUserId: data.user.id });
@@ -342,7 +370,10 @@ adminRouter.get(
   '/orgs/:id/external-api',
   asyncHandler(async (req: Request, res: Response) => {
     const id = req.params.id as string;
-    const cfg = await prisma.externalApiConfig.findUnique({ where: { orgId: id } });
+    const [cfg, org] = await Promise.all([
+      prisma.externalApiConfig.findUnique({ where: { orgId: id } }),
+      prisma.organization.findUnique({ where: { id }, select: { automationMode: true } }),
+    ]);
     if (!cfg) {
       res.json({ configured: false, config: null });
       return;
@@ -352,8 +383,11 @@ adminRouter.get(
       baseUrl: hostFromClient(cfg.clientSlug),
       authDomainName: domainFromClient(cfg.clientSlug),
       authUsername: cfg.authUsername ?? env.EXTERNAL_API_USERNAME,
+      cimsClientId: cfg.cimsClientId ?? env.CIMS_CLIENT_ID,
+      webgetDbId: cfg.webgetDbId ?? env.WEBGET_DB_ID,
+      automationMode: org?.automationMode ?? 'AUTO_LOGIN',
       returnOrdersPath: cfg.returnOrdersPath,
-      passwordSet: cfg.authPasswordEnc.length > 0,
+      passwordSet: (cfg.authPasswordEnc?.length ?? 0) > 0,
       updatedAt: cfg.updatedAt.toISOString(),
     };
     res.json({ configured: true, config: view });
@@ -370,22 +404,33 @@ adminRouter.put(
     const org = await prisma.organization.findUnique({ where: { id } });
     if (!org) throw new AppError(ErrorCode.LIC_NOT_FOUND, 'Org not found');
 
-    const authPasswordEnc = encryptSecret(input.authPassword);
+    // Password is write-only: encrypt + set it only when provided; otherwise keep
+    // the existing per-org secret (or the shared backend password when none).
+    const authPasswordEnc = input.authPassword ? encryptSecret(input.authPassword) : undefined;
     await prisma.externalApiConfig.upsert({
       where: { orgId: id },
       create: {
         orgId: id,
         clientSlug: input.clientSlug,
         authUsername: input.authUsername ?? null,
-        authPasswordEnc,
+        authPasswordEnc: authPasswordEnc ?? null,
+        cimsClientId: input.cimsClientId,
+        webgetDbId: input.webgetDbId,
         returnOrdersPath: input.returnOrdersPath,
       },
       update: {
         clientSlug: input.clientSlug,
         authUsername: input.authUsername ?? null,
-        authPasswordEnc,
+        cimsClientId: input.cimsClientId,
+        webgetDbId: input.webgetDbId,
         returnOrdersPath: input.returnOrdersPath,
+        ...(authPasswordEnc ? { authPasswordEnc } : {}),
       },
+    });
+    // Automation mode lives on the organization (read by the desktop at runtime).
+    await prisma.organization.update({
+      where: { id },
+      data: { automationMode: input.automationMode },
     });
     invalidateExternalConfig(id);
 
@@ -395,7 +440,13 @@ adminRouter.put(
       action: 'external-api.update',
       orgId: id,
       target: input.clientSlug,
-      meta: { clientSlug: input.clientSlug, baseUrl: hostFromClient(input.clientSlug) },
+      meta: {
+        clientSlug: input.clientSlug,
+        baseUrl: hostFromClient(input.clientSlug),
+        cimsClientId: input.cimsClientId,
+        webgetDbId: input.webgetDbId,
+        automationMode: input.automationMode,
+      },
     });
     res.json({ orgId: id, configured: true, baseUrl: hostFromClient(input.clientSlug) });
   }),

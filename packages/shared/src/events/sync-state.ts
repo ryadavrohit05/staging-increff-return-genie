@@ -38,6 +38,8 @@ export const SyncPhase = {
   // Automation (local, Playwright)
   MYNTRA_STARTING: 'myntra:starting',
   MYNTRA_LOGGING_IN: 'myntra:logging-in',
+  // MANUAL_LOGIN: waiting for the user to sign in by hand and reach the report page.
+  MYNTRA_AWAITING_MANUAL_LOGIN: 'myntra:awaiting-manual-login',
   MYNTRA_AUTHENTICATED: 'myntra:authenticated',
   MYNTRA_FILLING_FORM: 'myntra:filling-form',
   MYNTRA_SETTING_DATES: 'myntra:setting-dates',
@@ -59,6 +61,7 @@ export type SyncPhase = (typeof SyncPhase)[keyof typeof SyncPhase];
 export const PHASE_TO_STEP: Record<SyncPhase, number> = {
   [SyncPhase.MYNTRA_STARTING]: 1,
   [SyncPhase.MYNTRA_LOGGING_IN]: 1,
+  [SyncPhase.MYNTRA_AWAITING_MANUAL_LOGIN]: 1,
   [SyncPhase.MYNTRA_AUTHENTICATED]: 1,
   [SyncPhase.MYNTRA_FILLING_FORM]: 2,
   [SyncPhase.MYNTRA_SETTING_DATES]: 2,

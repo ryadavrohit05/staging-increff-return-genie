@@ -14,6 +14,8 @@ import type {
   SyncSummary,
   OrgStatus,
   LicenseStatus,
+  ExternalApiConfigView,
+  ExternalApiConfigInput,
 } from '@rg/shared';
 import { api } from './api';
 
@@ -61,6 +63,7 @@ export interface SyncRunFilters extends PaginationParams {
 export const qk = {
   orgs: (p: PaginationParams) => ['orgs', p] as const,
   orgDevices: (orgId: string) => ['orgs', orgId, 'devices'] as const,
+  orgExternalApi: (orgId: string) => ['orgs', orgId, 'external-api'] as const,
   syncRuns: (f: SyncRunFilters) => ['sync-runs', f] as const,
   syncRun: (id: string) => ['sync-runs', id] as const,
   audit: (p: PaginationParams & { orgId?: string }) => ['audit', p] as const,
@@ -110,6 +113,33 @@ export function useUpdateLicense() {
     mutationFn: ({ id, input }: { id: string; input: UpdateLicenseInput }) =>
       api.patch<UpdatedLicense>(`/admin/orgs/${id}/license`, input),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['orgs'] }),
+  });
+}
+
+// ── Per-org CIMS / Webget / automation configuration ──────────────────────────
+
+export interface ExternalApiConfigResponse {
+  configured: boolean;
+  config: ExternalApiConfigView | null;
+}
+
+export function useExternalApiConfig(orgId: string | undefined) {
+  return useQuery({
+    queryKey: qk.orgExternalApi(orgId ?? ''),
+    enabled: Boolean(orgId),
+    queryFn: () => api.get<ExternalApiConfigResponse>(`/admin/orgs/${orgId}/external-api`),
+  });
+}
+
+export function useUpsertExternalApiConfig(orgId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: ExternalApiConfigInput) =>
+      api.put<{ orgId: string; configured: boolean; baseUrl: string }>(
+        `/admin/orgs/${orgId}/external-api`,
+        input,
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: qk.orgExternalApi(orgId) }),
   });
 }
 

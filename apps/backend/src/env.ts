@@ -42,7 +42,11 @@ const EnvSchema = z.object({
   EXTERNAL_API_ENC_KEY: z.string().min(16),
 
   // CIMS import payload params (per the proven n8n "Format JSON Payload").
-  // Currently the Adidas tenant's values; per-org overrides are a future addition.
+  //
+  // These are the DEFAULT / env-default tenant (Adidas) values. Multi-tenant orgs
+  // carry their own clientId in external_api_configs and resolve channelId /
+  // fulfillmentLocationCode / omsLocationId dynamically from oms.oms_sub_orders.
+  // The values here remain the fallback for the env-default tenant ONLY.
   CIMS_OMS_LOCATION_ID: z.coerce.number().int(),
   CIMS_FULFILLMENT_LOCATION_CODE: z.string().min(1),
   CIMS_CLIENT_ID: z.coerce.number().int(),
@@ -50,6 +54,15 @@ const EnvSchema = z.object({
   CIMS_TIMEOUT_MS: z.coerce.number().int().positive().default(60_000),
   // How many return orders to submit to CIMS concurrently (bounded fan-out).
   CIMS_SUBMIT_CONCURRENCY: z.coerce.number().int().positive().default(5),
+
+  // OMS channel/fulfillment resolution (multi-tenant): query oms.oms_sub_orders
+  // via the same Webget SQL API to learn each order's channel_id +
+  // fulfillmentLocationCode. Schema/table/columns are configurable for safety.
+  WEBGET_OMS_SCHEMA: z.string().default('oms'),
+  WEBGET_OMS_TABLE: z.string().default('oms_sub_orders'),
+  WEBGET_OMS_ID_COLUMN: z.string().default('channel_order_id'),
+  WEBGET_OMS_FULFILLMENT_COLUMN: z.string().default('fulfillmentLocationCode'),
+  WEBGET_OMS_CHANNEL_COLUMN: z.string().default('channel_id'),
 
   // Webget dedup (query CIMS for orders that already exist before submitting).
   WEBGET_URL: z.string().url().default('https://saas.increff.com/webget/in/api/app/sql/result'),

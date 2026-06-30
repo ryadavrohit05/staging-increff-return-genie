@@ -12,6 +12,18 @@ export type OrgStatus = z.infer<typeof OrgStatus>;
 export const LicenseStatus = z.enum(['ACTIVE', 'EXPIRED', 'CANCELLED']);
 export type LicenseStatus = z.infer<typeof LicenseStatus>;
 
+/**
+ * How the desktop automation authenticates with the marketplace before report
+ * generation:
+ *  - AUTO_LOGIN: the browser logs in automatically with stored credentials
+ *    (the original/Adidas behavior).
+ *  - MANUAL_LOGIN: the browser opens the login page and waits for the user to
+ *    sign in by hand; automation resumes once the Seller Returns Report page is
+ *    detected. Everything after that point is identical to AUTO_LOGIN.
+ */
+export const AutomationMode = z.enum(['AUTO_LOGIN', 'MANUAL_LOGIN']);
+export type AutomationMode = z.infer<typeof AutomationMode>;
+
 export const DeviceStatus = z.enum(['ACTIVE', 'REVOKED']);
 export type DeviceStatus = z.infer<typeof DeviceStatus>;
 

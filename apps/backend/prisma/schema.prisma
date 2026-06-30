@@ -28,6 +28,10 @@ model Organization {
   slug                String               @unique
   status              OrgStatus            @default(ACTIVE)
   maxDevices          Int                  @default(2) @map("max_devices")
+  // Marketplace login strategy for this tenant's desktop automation.
+  // Default AUTO_LOGIN preserves the original (Adidas) behavior for any org
+  // created before this column existed; onboarding sets it explicitly.
+  automationMode      AutomationMode       @default(AUTO_LOGIN) @map("automation_mode")
   createdAt           DateTime             @default(now()) @map("created_at")
   users               User[]
   devices             Device[]
@@ -55,7 +59,16 @@ model ExternalApiConfig {
   orgId            String       @unique @map("org_id")
   clientSlug       String       @map("client_slug") // e.g. adidasgcc → host + domain derived
   authUsername     String?      @map("auth_username") // optional override; else shared env username
-  authPasswordEnc  String       @map("auth_password_enc") // AES-256-GCM ciphertext
+  // AES-256-GCM ciphertext. Nullable: when absent, the shared backend password
+  // (EXTERNAL_API_PASSWORD) is used — so onboarding need not collect a per-org
+  // secret unless the tenant requires distinct CIMS credentials.
+  authPasswordEnc  String?      @map("auth_password_enc")
+  // Per-tenant CIMS clientId — one org maps to exactly one clientId. Nullable so
+  // the env-default tenant (Adidas) can fall back to CIMS_CLIENT_ID.
+  cimsClientId     Int?         @map("cims_client_id")
+  // Per-tenant Webget dbId for the dedup + oms_sub_orders queries. Nullable so
+  // the env-default tenant falls back to WEBGET_DB_ID.
+  webgetDbId       Int?         @map("webget_db_id")
   returnOrdersPath String       @default("/cims/import/returnOrders") @map("return_orders_path")
   createdAt        DateTime     @default(now()) @map("created_at")
   updatedAt        DateTime     @updatedAt @map("updated_at")
@@ -240,6 +253,11 @@ enum LicenseStatus {
 enum Marketplace {
   MYNTRA
   FLIPKART
+}
+
+enum AutomationMode {
+  AUTO_LOGIN
+  MANUAL_LOGIN
 }
 
 enum SyncState {

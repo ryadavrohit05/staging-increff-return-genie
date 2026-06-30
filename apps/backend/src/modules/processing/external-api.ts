@@ -5,6 +5,7 @@ import { logger } from '../../lib/logger.js';
 import { decryptSecret } from '../../lib/crypto.js';
 import type { ReturnRow } from './reconstruct.js';
 import type { WebgetConfig } from './webget.js';
+import type { OmsResolveConfig, SubOrderResolution } from './oms-resolve.js';
 
 /**
  * ★ THE ONLY place external upload-API credentials are read (ARCHITECTURE.md §11).
@@ -36,13 +37,30 @@ export interface CimsParams {
   timeoutMs: number;
 }
 
+/** Per-group CIMS parameters resolved at runtime from oms.oms_sub_orders. */
+export interface CimsResolvedParams {
+  clientId: number; // from org config (NOT queried)
+  channelId: string; // from oms_sub_orders
+  fulfillmentLocationCode: string; // from oms_sub_orders
+}
+
 export interface ResolvedExternalConfig {
   client: string;
   baseUrl: string;
   returnOrdersPath: string;
   authHeaders: Record<string, string>;
+  /** Per-org CIMS clientId (one org → one clientId). Env fallback for Adidas. */
+  clientId: number;
+  /**
+   * When true (per-org tenants), channel/fulfillment are resolved from
+   * oms.oms_sub_orders and omsLocationId === fulfillmentLocationCode.
+   * When false (the env-default tenant, Adidas), the legacy env CIMS params in
+   * `cims` are used verbatim — preserving the original payload byte-for-byte.
+   */
+  useOmsResolution: boolean;
   cims: CimsParams;
   webget: WebgetConfig;
+  oms: OmsResolveConfig;
 }
 
 const CONFIG_TTL_MS = 60_000;
@@ -76,9 +94,16 @@ function deriveConfig(opts: {
   password: string;
   usernameOverride?: string | null;
   returnOrdersPath?: string;
+  /** Per-org CIMS clientId; falls back to the env default for Adidas. */
+  clientId: number;
+  /** Per-org Webget dbId; falls back to the env default for Adidas. */
+  webgetDbId: number;
+  /** true ⇒ per-org tenant (resolve channel/fulfillment from oms_sub_orders). */
+  useOmsResolution: boolean;
 }): ResolvedExternalConfig {
   const client = opts.client;
   const authUsername = opts.usernameOverride || env.EXTERNAL_API_USERNAME;
+  const webgetAuth = parseWebgetAuthHeaders();
   return {
     client,
     baseUrl: hostFromClient(client),
@@ -88,22 +113,36 @@ function deriveConfig(opts: {
       authPassword: opts.password,
       authDomainName: domainFromClient(client),
     },
+    clientId: opts.clientId,
+    useOmsResolution: opts.useOmsResolution,
     cims: {
       omsLocationId: env.CIMS_OMS_LOCATION_ID,
       fulfillmentLocationCode: env.CIMS_FULFILLMENT_LOCATION_CODE,
-      clientId: env.CIMS_CLIENT_ID,
+      clientId: opts.clientId,
       channelId: env.CIMS_CHANNEL_ID,
       timeoutMs: env.CIMS_TIMEOUT_MS,
     },
     webget: {
       url: env.WEBGET_URL,
       schema: env.WEBGET_SCHEMA,
-      dbId: env.WEBGET_DB_ID,
+      dbId: opts.webgetDbId,
       table: env.WEBGET_TABLE,
       idColumn: env.WEBGET_ID_COLUMN,
       channelColumn: env.WEBGET_CHANNEL_COLUMN,
       channelId: env.CIMS_CHANNEL_ID,
-      authHeaders: parseWebgetAuthHeaders(),
+      authHeaders: webgetAuth,
+      timeoutMs: env.WEBGET_TIMEOUT_MS,
+      batchSize: env.WEBGET_BATCH_SIZE,
+    },
+    oms: {
+      url: env.WEBGET_URL,
+      schema: env.WEBGET_OMS_SCHEMA,
+      dbId: opts.webgetDbId,
+      table: env.WEBGET_OMS_TABLE,
+      idColumn: env.WEBGET_OMS_ID_COLUMN,
+      fulfillmentColumn: env.WEBGET_OMS_FULFILLMENT_COLUMN,
+      channelColumn: env.WEBGET_OMS_CHANNEL_COLUMN,
+      authHeaders: webgetAuth,
       timeoutMs: env.WEBGET_TIMEOUT_MS,
       batchSize: env.WEBGET_BATCH_SIZE,
     },
@@ -130,14 +169,21 @@ export async function resolveExternalConfig(orgId: string): Promise<ResolvedExte
   let value: ResolvedExternalConfig;
 
   if (row) {
+    // Per-org tenant → multi-tenant path (resolve channel/fulfillment from OMS).
+    // The CIMS password is per-org when set, else the shared backend password.
     value = deriveConfig({
       client: row.clientSlug,
-      password: decryptSecret(row.authPasswordEnc),
+      password: row.authPasswordEnc ? decryptSecret(row.authPasswordEnc) : env.EXTERNAL_API_PASSWORD,
       usernameOverride: row.authUsername,
       returnOrdersPath: row.returnOrdersPath,
+      clientId: row.cimsClientId ?? env.CIMS_CLIENT_ID,
+      webgetDbId: row.webgetDbId ?? env.WEBGET_DB_ID,
+      useOmsResolution: true,
     });
   } else {
-    // No per-org config → only the default tenant (Adidas) may use the env creds.
+    // No per-org config → only the default tenant (Adidas) may use the env creds,
+    // and it stays on the LEGACY path (env CIMS params, no OMS resolution) so its
+    // payloads are byte-identical to before.
     const org = await prisma.organization.findUnique({
       where: { id: orgId },
       select: { slug: true },
@@ -150,7 +196,13 @@ export async function resolveExternalConfig(orgId: string): Promise<ResolvedExte
           `config via PUT /admin/orgs/:id/external-api.`,
       );
     }
-    value = deriveConfig({ client: env.EXTERNAL_API_CLIENT, password: env.EXTERNAL_API_PASSWORD });
+    value = deriveConfig({
+      client: env.EXTERNAL_API_CLIENT,
+      password: env.EXTERNAL_API_PASSWORD,
+      clientId: env.CIMS_CLIENT_ID,
+      webgetDbId: env.WEBGET_DB_ID,
+      useOmsResolution: false,
+    });
   }
 
   configCache.set(orgId, { value, expires: Date.now() + CONFIG_TTL_MS });
@@ -204,6 +256,22 @@ export function buildCimsPayload(row: ReturnRow, cfg: ResolvedExternalConfig): u
   return buildCimsGroupPayload([row], cfg);
 }
 
+/**
+ * Multi-tenant CIMS payload. clientId comes from org config; channelId and
+ * fulfillmentLocationCode come from oms.oms_sub_orders; omsLocationId === the
+ * fulfillmentLocationCode (no separate lookup). Same forms[] shape as legacy.
+ */
+export function buildCimsResolvedPayload(rows: ReturnRow[], params: CimsResolvedParams): unknown {
+  return {
+    omsLocationId: params.fulfillmentLocationCode,
+    fulfillmentLocationCode: params.fulfillmentLocationCode,
+    clientId: params.clientId,
+    channelId: params.channelId,
+    channelReturnOrderId: rows[0]!.channelReturnOrderId,
+    forms: rows.map(toForm),
+  };
+}
+
 interface CimsErrorBody {
   message?: string;
   description?: string;
@@ -247,12 +315,12 @@ export function classifyCimsResponse(
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 const backoff = (attempt: number) => BASE_BACKOFF_MS * 2 ** (attempt - 1) + Math.random() * 100;
 
-/**
- * Submit a single return order. Retries ONLY on network/timeout errors (where we
- * can't be sure CIMS received it AND it would not have created the order). An
- * HTTP 4xx/5xx is recorded as a FAILED result without retry — matching the n8n
- * `neverError` behavior and avoiding duplicate creation.
- */
+/** A pre-built request: the rows it covers + the serialized CIMS body. */
+interface SubmitGroup {
+  rows: ReturnRow[];
+  body: string;
+}
+
 /**
  * Submit ONE return order (a group of line items sharing channelReturnOrderId).
  * Retries ONLY on network/timeout errors (where we can't be sure CIMS received
@@ -260,12 +328,12 @@ const backoff = (attempt: number) => BASE_BACKOFF_MS * 2 ** (attempt - 1) + Math
  * parity, avoids duplicate creation). Returns one result per row in the group,
  * all carrying the group's outcome.
  */
-async function submitReturnOrderGroup(
-  rows: ReturnRow[],
+async function submitGroup(
+  group: SubmitGroup,
   cfg: ResolvedExternalConfig,
 ): Promise<UploadRowResult[]> {
   const url = `${cfg.baseUrl}${cfg.returnOrdersPath}`;
-  const body = JSON.stringify(buildCimsGroupPayload(rows, cfg));
+  const { rows, body } = group;
   const returnId = rows[0]!.channelReturnOrderId;
   const fanOut = (status: UploadRowResult['status'], error: string | null) =>
     rows.map((r) => ({ orderId: r.sellerOrderId, status, error }));
@@ -300,6 +368,27 @@ async function submitReturnOrderGroup(
 /** Max return orders submitted to CIMS at once (bounded concurrency). */
 const SUBMIT_CONCURRENCY = Math.max(1, Number(env.CIMS_SUBMIT_CONCURRENCY) || 5);
 
+/** Submit pre-built groups with bounded concurrency. Returns one result per row. */
+async function submitGroups(
+  groups: SubmitGroup[],
+  cfg: ResolvedExternalConfig,
+): Promise<UploadRowResult[]> {
+  const groupResults: UploadRowResult[][] = new Array(groups.length);
+  let cursor = 0;
+
+  async function worker(): Promise<void> {
+    for (;;) {
+      const i = cursor++;
+      if (i >= groups.length) return;
+      groupResults[i] = await submitGroup(groups[i]!, cfg);
+    }
+  }
+
+  const lanes = Math.min(SUBMIT_CONCURRENCY, groups.length);
+  await Promise.all(Array.from({ length: lanes }, () => worker()));
+  return groupResults.flat();
+}
+
 /** Group rows that belong to the same return order (shared channelReturnOrderId). */
 function groupByReturnOrder(rows: ReturnRow[]): ReturnRow[][] {
   const groups = new Map<string, ReturnRow[]>();
@@ -313,30 +402,62 @@ function groupByReturnOrder(rows: ReturnRow[]): ReturnRow[][] {
 }
 
 /**
- * Submit return orders to CIMS. Rows are grouped by channelReturnOrderId so a
- * multi-item return is ONE request with multiple forms (CIMS UI parity); groups
- * are submitted with bounded concurrency. Never throws; returns one result per
- * input row (keyed by channelOrderId / sellerOrderId).
+ * LEGACY (env-default tenant / Adidas) submit path — unchanged behavior.
+ * Rows are grouped by channelReturnOrderId so a multi-item return is ONE request
+ * with multiple forms (CIMS UI parity); the payload uses the env CIMS params.
+ * Never throws; returns one result per input row (keyed by sellerOrderId).
  */
 export async function uploadReturnOrders(
   rows: ReturnRow[],
   cfg: ResolvedExternalConfig,
 ): Promise<UploadRowResult[]> {
-  const groups = groupByReturnOrder(rows);
-  const groupResults: UploadRowResult[][] = new Array(groups.length);
-  let cursor = 0;
+  const groups: SubmitGroup[] = groupByReturnOrder(rows).map((g) => ({
+    rows: g,
+    body: JSON.stringify(buildCimsGroupPayload(g, cfg)),
+  }));
+  return submitGroups(groups, cfg);
+}
 
-  async function worker(): Promise<void> {
-    for (;;) {
-      const i = cursor++;
-      if (i >= groups.length) return;
-      groupResults[i] = await submitReturnOrderGroup(groups[i]!, cfg);
+/**
+ * MULTI-TENANT submit path. Orders are grouped by channelId, then by
+ * fulfillmentLocationCode, then by channelReturnOrderId (one request per return
+ * order, many forms). channelId/fulfillmentLocationCode come from the OMS
+ * resolution map; clientId from org config; omsLocationId === fulfillment.
+ *
+ * `rows` MUST all be present in `resolution` (callers SKIP unresolved orders
+ * before calling). Returns one result per input row.
+ */
+export async function uploadReturnOrdersResolved(
+  rows: ReturnRow[],
+  resolution: Map<string, SubOrderResolution>,
+  cfg: ResolvedExternalConfig,
+): Promise<UploadRowResult[]> {
+  // Composite grouping key: channelId → fulfillmentLocationCode → returnOrderId.
+  const groupsByKey = new Map<string, { params: CimsResolvedParams; rows: ReturnRow[] }>();
+  for (const row of rows) {
+    const info = resolution.get(row.sellerOrderId);
+    if (!info) continue; // defensive; callers already filtered
+    const returnKey = row.channelReturnOrderId || `__norid__${row.sellerOrderId}`;
+    const key = `${info.channelId} ${info.fulfillmentLocationCode} ${returnKey}`;
+    const existing = groupsByKey.get(key);
+    if (existing) existing.rows.push(row);
+    else {
+      groupsByKey.set(key, {
+        params: {
+          clientId: cfg.clientId,
+          channelId: info.channelId,
+          fulfillmentLocationCode: info.fulfillmentLocationCode,
+        },
+        rows: [row],
+      });
     }
   }
 
-  const lanes = Math.min(SUBMIT_CONCURRENCY, groups.length);
-  await Promise.all(Array.from({ length: lanes }, () => worker()));
-  return groupResults.flat();
+  const groups: SubmitGroup[] = [...groupsByKey.values()].map((g) => ({
+    rows: g.rows,
+    body: JSON.stringify(buildCimsResolvedPayload(g.rows, g.params)),
+  }));
+  return submitGroups(groups, cfg);
 }
 
 // ── Transitional n8n passthrough (kept; disabled unless N8N_WEBHOOK_URL set) ──

@@ -7,6 +7,7 @@ import type {
   CredentialStatus,
   LicenseStatusResult,
   DeviceInfo,
+  OrgConfigView,
 } from '@rg/shared';
 import { ipc } from '../lib/ipc';
 
@@ -21,12 +22,14 @@ interface SettingsStore {
   creds: CredentialStatus[];
   license: LicenseStatusResult | null;
   device: DeviceInfo | null;
+  orgConfig: OrgConfigView | null;
   version: string;
   update: UpdateEvent | null;
 
   refreshCreds: () => Promise<void>;
   refreshLicense: () => Promise<void>;
   refreshDevice: () => Promise<void>;
+  refreshOrgConfig: () => Promise<void>;
   refreshVersion: () => Promise<void>;
   installUpdate: () => Promise<void>;
   _bindUpdate: () => void;
@@ -38,6 +41,7 @@ export const useSettings = create<SettingsStore>((set, get) => ({
   creds: [],
   license: null,
   device: null,
+  orgConfig: null,
   version: '',
   update: null,
 
@@ -47,6 +51,13 @@ export const useSettings = create<SettingsStore>((set, get) => ({
       set({ license: await ipc.license.status() });
     } catch {
       set({ license: null });
+    }
+  },
+  refreshOrgConfig: async () => {
+    try {
+      set({ orgConfig: await ipc.app.orgConfig() });
+    } catch {
+      set({ orgConfig: null });
     }
   },
   refreshDevice: async () => {

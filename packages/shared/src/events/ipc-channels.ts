@@ -33,6 +33,7 @@ export const CH = {
 
   // App / updates
   APP_VERSION: 'app:version',
+  APP_ORG_CONFIG: 'app:org-config', // non-secret per-org runtime config (automation mode)
   APP_UPDATE: 'app:update', // main -> renderer push (update available/progress/ready)
   APP_INSTALL_UPDATE: 'app:install-update',
   APP_OPEN_EXTERNAL: 'app:open-external',

@@ -20,6 +20,7 @@ import {
   type SyncResultRow,
   type LicenseStatusResult,
   type DeviceInfo,
+  type OrgConfigView,
 } from '@rg/shared';
 
 interface Paginated<T> {
@@ -86,6 +87,7 @@ const api = {
   },
   app: {
     version: (): Promise<IpcResult<string>> => ipcRenderer.invoke(CH.APP_VERSION),
+    orgConfig: (): Promise<IpcResult<OrgConfigView>> => ipcRenderer.invoke(CH.APP_ORG_CONFIG),
     onUpdate: (cb: (e: UpdateEvent) => void): Unsubscribe => subscribe(CH.APP_UPDATE, cb),
     installUpdate: (): Promise<IpcResult<{ ok: true }>> =>
       ipcRenderer.invoke(CH.APP_INSTALL_UPDATE),

@@ -10,9 +10,11 @@ import { fetchExistingOrderIds } from './webget.js';
 import {
   resolveExternalConfig,
   uploadReturnOrders,
+  uploadReturnOrdersResolved,
   uploadViaN8n,
   type UploadRowResult,
 } from './external-api.js';
+import { resolveSubOrders, type SubOrderResolution } from './oms-resolve.js';
 import { reconcile, type RowOutcome } from './reconcile.js';
 
 /** Build a full per-order outcome row from a parsed ReturnRow + its result. */
@@ -107,19 +109,59 @@ export async function processReport(job: ProcessReportJob): Promise<void> {
       await logSync(syncRunId, 'INFO', 'upload', `Retrying ${toSubmit.length} previously-failed rows`);
     }
 
-    // ── 4. submit to CIMS ───────────────────────────────────────────────────
+    // ── 4. resolve channel/fulfillment (multi-tenant) + submit to CIMS ──────
     await setStatePhase(syncRunId, SyncState.UPLOADING, SyncPhase.PROC_UPLOAD);
-    await logSync(syncRunId, 'INFO', 'upload', `Submitting ${toSubmit.length} return orders to CIMS`);
-    const uploaded: UploadRowResult[] = await uploadReturnOrders(toSubmit, cfg);
+
+    let submittedRows: ReturnRow[] = toSubmit;
+    let unresolvedRows: ReturnRow[] = [];
+    let uploaded: UploadRowResult[];
+
+    if (cfg.useOmsResolution) {
+      // Per-org tenant: look up channelId + fulfillmentLocationCode for the
+      // not-in-CIMS orders, then group by channel → fulfillment → return order.
+      await logSync(
+        syncRunId,
+        'INFO',
+        'processing',
+        `Resolving channel/fulfillment for ${toSubmit.length} orders from oms_sub_orders`,
+      );
+      const resolution: Map<string, SubOrderResolution> = await resolveSubOrders(
+        toSubmit.map((r) => r.sellerOrderId),
+        cfg.oms,
+      );
+      submittedRows = toSubmit.filter((r) => resolution.has(r.sellerOrderId));
+      unresolvedRows = toSubmit.filter((r) => !resolution.has(r.sellerOrderId));
+      if (unresolvedRows.length > 0) {
+        await logSync(
+          syncRunId,
+          'WARN',
+          'processing',
+          `${unresolvedRows.length} orders not found in oms_sub_orders — skipped`,
+        );
+      }
+      await logSync(
+        syncRunId,
+        'INFO',
+        'upload',
+        `Submitting ${submittedRows.length} return orders to CIMS (clientId ${cfg.clientId})`,
+      );
+      uploaded = await uploadReturnOrdersResolved(submittedRows, resolution, cfg);
+    } else {
+      // Env-default tenant (Adidas): legacy path, env CIMS params, unchanged.
+      await logSync(syncRunId, 'INFO', 'upload', `Submitting ${toSubmit.length} return orders to CIMS`);
+      uploaded = await uploadReturnOrders(toSubmit, cfg);
+    }
 
     // ── build full per-order outcomes (for the detailed results CSV) ─────────
     const resultByOrderId = new Map(uploaded.map((u) => [u.orderId, u]));
     const outcomes: RowOutcome[] = [
       // submitted rows → their CIMS result
-      ...toSubmit.map((r) => {
+      ...submittedRows.map((r) => {
         const res = resultByOrderId.get(r.sellerOrderId);
         return toOutcome(r, res?.status ?? 'FAILED', res?.error ?? 'No response from CIMS');
       }),
+      // orders with no OMS sub-order row → skipped (cannot build a valid payload)
+      ...unresolvedRows.map((r) => toOutcome(r, 'SKIPPED', 'Order not found in OMS (oms_sub_orders)')),
       // already-in-CIMS rows → skipped
       ...dedupSkippedRows.map((r) => toOutcome(r, 'SKIPPED', 'Already exists in CIMS')),
       // invalid rows → skipped with reason

@@ -3,12 +3,13 @@
  */
 import { z } from 'zod';
 import { app } from 'electron';
-import { CH, type LicenseStatusResult, type DeviceInfo } from '@rg/shared';
+import { CH, type LicenseStatusResult, type DeviceInfo, type OrgConfigView } from '@rg/shared';
 import { handle } from './helpers.js';
 import { status as licenseStatus } from '../services/license-gate.js';
 import { deviceInfo } from '../services/device.js';
 import { installUpdate } from '../services/updater.js';
 import { openExternal } from '../windows.js';
+import { apiClient } from '../services/api-client.js';
 
 const OpenExternalInput = z.object({ url: z.string().url() });
 
@@ -32,5 +33,10 @@ export function registerAppIpc(): void {
   handle(CH.DEVICE_INFO, null, async (): Promise<DeviceInfo> => {
     // Authoritative backend record from registration, else local descriptor.
     return deviceInfo();
+  });
+
+  handle(CH.APP_ORG_CONFIG, null, async (): Promise<OrgConfigView> => {
+    // Non-secret per-org runtime config (automation mode). Backend-authoritative.
+    return apiClient.get<OrgConfigView>('/app/org-config');
   });
 }
