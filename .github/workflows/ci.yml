@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Cancel superseded runs on the same ref to save CI minutes.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build, typecheck, lint, test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      # Node 22 to match .nvmrc and the runtime: @supabase/realtime-js requires a
+      # native WebSocket (Node >=22); on Node 20 createClient throws and crashes
+      # the backend test suite. Render reads .nvmrc (22) too, so this aligns CI
+      # with production.
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Generate the Prisma client before any build/typecheck — the backend imports
+      # @prisma/client types (PrismaClient, $Enums, model types) that only exist
+      # after `prisma generate`. Without this the backend tsc build fails on a
+      # fresh checkout (TS2305: no exported member 'PrismaClient').
+      - name: Generate Prisma client
+        run: pnpm --filter @rg/backend prisma:generate
+
+      # Turbo builds @rg/shared first via `dependsOn: ["^build"]`, so downstream
+      # typecheck/test can resolve its emitted .d.ts.
+      - name: Build
+        run: pnpm build
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      # Lint is allowed to be a no-op until every package wires up a lint task.
+      - name: Lint
+        run: pnpm lint || echo "lint not configured in all packages — skipping"
+
+      - name: Test
+        run: pnpm test

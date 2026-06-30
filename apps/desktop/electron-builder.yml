@@ -1,0 +1,66 @@
+appId: com.increff.returngenie
+productName: Return Genie
+copyright: Copyright © Increff
+
+# `normal` avoids 7-Zip's max-compression (-mx=9) pass, which is very slow and
+# memory-heavy on the ~1 GB bundle (Electron + Chromium) and was failing. GitHub
+# Releases hosts the larger artifact fine.
+compression: normal
+
+# Bundle the electron-vite output. ASAR packaging keeps the source compact and
+# opaque; secrets are NEVER embedded — they live in the OS keystore at runtime.
+directories:
+  output: dist
+  buildResources: resources
+
+files:
+  - out/**
+  - package.json
+
+# Ship Playwright's Chromium inside the installer so the client never has to run
+# `playwright install`. `scripts/bundle-browser.mjs` downloads it into
+# apps/desktop/pw-browsers before packaging; it lands at resources/pw-browsers,
+# and automation-host points PLAYWRIGHT_BROWSERS_PATH there at runtime.
+extraResources:
+  - from: pw-browsers
+    to: pw-browsers
+    filter:
+      - "**/*"
+
+asar: true
+
+# NOTE: resources/icon.ico MUST be supplied before packaging (see README.md).
+# Code signing is disabled — set CSC_LINK + CSC_KEY_PASSWORD env vars to enable
+# when you have a certificate. Without them electron-builder tries to download
+# winCodeSign which fails on Windows without symlink privileges.
+win:
+  target:
+    - nsis
+  icon: resources/icon.ico
+  # Stable, space-free filename → clean GitHub Releases download URL.
+  artifactName: ReturnGenie-Setup-${version}.${ext}
+  forceCodeSigning: false
+
+nsis:
+  # One-click, no-admin, no-prompts install straight to %LOCALAPPDATA%\Programs.
+  # oneClick=true → no wizard / no folder choice; perMachine=false +
+  # allowElevation=false → per-user, never requests elevation (no UAC/admin).
+  oneClick: true
+  perMachine: false
+  allowElevation: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Return Genie
+
+# Custom protocol used by the marketing site to launch the installed agent.
+protocols:
+  - name: Return Genie
+    schemes:
+      - returngenie
+
+# electron-updater feed. `owner` = GitHub user/org login; `repo` = repo NAME only.
+publish:
+  provider: github
+  owner: rohityadav-increff
+  repo: increff-return-genie-2
+  releaseType: release

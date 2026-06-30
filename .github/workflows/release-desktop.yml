@@ -1,0 +1,71 @@
+name: Release Desktop
+
+# Tagging vX.Y.Z builds, (optionally signs) and publishes the Windows NSIS
+# installer + latest.yml to GitHub Releases. That Release is the electron-updater
+# feed (publish provider: github in apps/desktop/electron-builder.yml).
+on:
+  push:
+    tags:
+      - 'v*'
+
+concurrency:
+  group: release-desktop-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write # required for electron-builder to create/upload the GitHub Release
+
+jobs:
+  release:
+    name: Build & publish (${{ matrix.os }})
+    strategy:
+      matrix:
+        os: [windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      # Node 22 to match .nvmrc (the project's declared runtime).
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Build the workspace deps the desktop bundle imports at build time.
+      - name: Build shared + automation
+        run: pnpm --filter @rg/shared --filter @rg/automation build
+
+      # electron-vite build (renderer + main + preload). Produces apps/desktop/out.
+      - name: Build desktop bundle
+        run: pnpm --filter @rg/desktop build
+
+      # Download + bundle Playwright's Chromium into apps/desktop/pw-browsers
+      # (gitignored, so absent in CI). electron-builder ships it via extraResources
+      # so clients never run `playwright install`. The local build:win script does
+      # this too; CI MUST as well or the installer has no browser and automation
+      # can't launch on the client machine.
+      - name: Bundle Playwright Chromium
+        working-directory: apps/desktop
+        run: node scripts/bundle-browser.mjs
+
+      # Package + publish. `build:win` runs electron-builder with --publish never,
+      # so we invoke electron-builder explicitly here with --publish always to push
+      # the NSIS installer + latest.yml to the GitHub Release for this tag.
+      - name: Package & publish (electron-builder → GitHub Releases)
+        working-directory: apps/desktop
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # ── Code signing (uncomment + add secrets to enable) ──────────────
+          # CSC_LINK is a base64-encoded .pfx or a URL to the certificate.
+          # CSC_KEY_PASSWORD is the certificate password.
+          # CSC_LINK: ${{ secrets.CSC_LINK }}
+          # CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+        run: pnpm exec electron-builder --win --publish always

@@ -1,0 +1,27 @@
+# Pings the backend /health on a schedule so the free Render service does not
+# sleep (a slept service takes ~50s to cold-start, which makes the desktop app
+# feel slow to open). Update BACKEND_URL if your API URL changes.
+#
+# NOTE: this is a free stop-gap. For reliable always-on, upgrade the Render
+# service to a paid (Starter) instance, which never sleeps.
+name: keepalive
+
+on:
+  schedule:
+    - cron: '*/10 * * * *' # every 10 minutes (GitHub's min is 5)
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping backend health
+        run: |
+          BACKEND_URL="https://return-genie-api.onrender.com"
+          for i in 1 2 3; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 90 "$BACKEND_URL/health" || true)
+            echo "attempt $i → HTTP $code"
+            if [ "$code" = "200" ]; then exit 0; fi
+            sleep 10
+          done
+          echo "health check did not return 200 (service may be waking)"

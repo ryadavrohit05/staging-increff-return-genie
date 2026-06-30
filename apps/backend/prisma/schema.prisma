@@ -1,0 +1,266 @@
+// Return Genie — backend Prisma schema (Supabase Postgres, multi-tenant).
+//
+// Mirrors ARCHITECTURE.md §3 exactly. Every tenant-owned row carries `org_id`;
+// RLS (supabase/policies/rls.sql) enforces isolation at the DB layer. Table and
+// column names are mapped to snake_case so the hand-written RLS SQL matches.
+//
+// Marketplace credentials are NEVER stored here (they stay on the client
+// machine — see §5). External upload-API credentials ARE stored here, but
+// per-organization and ENCRYPTED AT REST (AES-256-GCM, key only in the backend
+// env — see lib/crypto.ts). This is a deliberate refinement of §11: the URL and
+// authDomainName are tenant-specific (e.g. adidasgcc / adidasgcc-oltp), so a
+// single global env value cannot serve 90+ tenants. The constraint that matters
+// — these secrets never reach the desktop/frontend — still holds.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model Organization {
+  id                  String               @id @default(uuid())
+  name                String
+  slug                String               @unique
+  status              OrgStatus            @default(ACTIVE)
+  maxDevices          Int                  @default(2) @map("max_devices")
+  createdAt           DateTime             @default(now()) @map("created_at")
+  users               User[]
+  devices             Device[]
+  licenses            License[]
+  marketplaceAccounts MarketplaceAccount[]
+  syncRuns            SyncRun[]
+  auditLogs           AuditLog[]
+  externalApiConfig   ExternalApiConfig?
+
+  @@map("organizations")
+}
+
+// Per-organization external upload-API (Increff CIMS) configuration.
+//
+// Everything derives from a single `client_slug` via the Increff convention:
+//   baseUrl        = https://{client}.omni.increff.com   (EXTERNAL_API_HOST_TEMPLATE)
+//   authDomainName = {client}-oltp                        (EXTERNAL_API_DOMAIN_TEMPLATE)
+//   authUsername   = shared constant (EXTERNAL_API_USERNAME) unless overridden here
+//
+// The password is the only genuinely per-client secret; it is stored AES-256-GCM
+// encrypted (auth_password_enc) and is never persisted in plaintext nor returned
+// to any client.
+model ExternalApiConfig {
+  id               String       @id @default(uuid())
+  orgId            String       @unique @map("org_id")
+  clientSlug       String       @map("client_slug") // e.g. adidasgcc → host + domain derived
+  authUsername     String?      @map("auth_username") // optional override; else shared env username
+  authPasswordEnc  String       @map("auth_password_enc") // AES-256-GCM ciphertext
+  returnOrdersPath String       @default("/cims/import/returnOrders") @map("return_orders_path")
+  createdAt        DateTime     @default(now()) @map("created_at")
+  updatedAt        DateTime     @updatedAt @map("updated_at")
+  org              Organization @relation(fields: [orgId], references: [id])
+
+  @@map("external_api_configs")
+}
+
+model User {
+  id         String       @id // == Supabase auth.users.id
+  orgId      String       @map("org_id")
+  email      String       @unique
+  role       Role         @default(MEMBER)
+  status     UserStatus   @default(ACTIVE)
+  lastSeenAt DateTime?    @map("last_seen_at")
+  org        Organization @relation(fields: [orgId], references: [id])
+
+  @@index([orgId])
+  @@map("users")
+}
+
+model Device {
+  id            String       @id @default(uuid())
+  orgId         String       @map("org_id")
+  userId        String       @map("user_id")
+  fingerprint   String
+  hostname      String
+  os            String
+  appVersion    String       @map("app_version")
+  status        DeviceStatus @default(ACTIVE)
+  lastHeartbeat DateTime?    @map("last_heartbeat")
+  registeredAt  DateTime     @default(now()) @map("registered_at")
+  org           Organization @relation(fields: [orgId], references: [id])
+
+  @@unique([orgId, fingerprint])
+  @@index([orgId])
+  @@map("devices")
+}
+
+model License {
+  id         String        @id @default(uuid())
+  orgId      String        @map("org_id")
+  plan       String
+  status     LicenseStatus @default(ACTIVE)
+  maxDevices Int           @default(2) @map("max_devices")
+  validFrom  DateTime      @default(now()) @map("valid_from")
+  validUntil DateTime      @map("valid_until")
+  org        Organization  @relation(fields: [orgId], references: [id])
+
+  @@index([orgId])
+  @@map("licenses")
+}
+
+// Marketplace ACCOUNT METADATA ONLY — never the password.
+model MarketplaceAccount {
+  id          String       @id @default(uuid())
+  orgId       String       @map("org_id")
+  marketplace Marketplace
+  label       String
+  credRef     String       @map("cred_ref") // opaque local keystore ref (no secret)
+  lastUsedAt  DateTime?    @map("last_used_at")
+  org         Organization @relation(fields: [orgId], references: [id])
+
+  @@index([orgId])
+  @@map("marketplace_accounts")
+}
+
+model SyncRun {
+  id            String       @id @default(uuid())
+  orgId         String       @map("org_id")
+  userId        String       @map("user_id")
+  deviceId      String       @map("device_id")
+  marketplace   Marketplace
+  startDate     String       @map("start_date") // YYYY-MM-DD filter
+  endDate       String       @map("end_date")
+  state         SyncState    @default(QUEUED)
+  phase         String?
+  reportPath    String?      @map("report_path") // Supabase Storage key (raw report)
+  resultPath    String?      @map("result_path") // Storage key (results csv)
+  totalRows     Int?         @map("total_rows")
+  successRows   Int?         @map("success_rows")
+  failedRows    Int?         @map("failed_rows")
+  skippedRows   Int?         @map("skipped_rows")
+  errorCode     String?      @map("error_code")
+  errorMessage  String?      @map("error_message")
+  screenshotKey String?      @map("screenshot_key")
+  attempt       Int          @default(1)
+  startedAt     DateTime     @default(now()) @map("started_at")
+  finishedAt    DateTime?    @map("finished_at")
+  org           Organization @relation(fields: [orgId], references: [id])
+  logs          SyncLog[]
+  results       SyncResult[]
+
+  @@index([orgId, startedAt])
+  @@map("sync_runs")
+}
+
+model SyncLog {
+  id        String   @id @default(uuid())
+  syncRunId String   @map("sync_run_id")
+  ts        DateTime @default(now())
+  level     LogLevel
+  stage     String // myntra | processing | upload | system
+  message   String
+  run       SyncRun  @relation(fields: [syncRunId], references: [id])
+
+  @@index([syncRunId, ts])
+  @@map("sync_logs")
+}
+
+// per-row outcome from external API
+model SyncResult {
+  id        String    @id @default(uuid())
+  syncRunId String    @map("sync_run_id")
+  orderId   String    @map("order_id")
+  status    RowStatus
+  error     String?
+  run       SyncRun   @relation(fields: [syncRunId], references: [id])
+
+  @@index([syncRunId])
+  @@map("sync_results")
+}
+
+model AppVersion {
+  id           String   @id @default(uuid())
+  version      String   @unique // semver
+  channel      String   @default("stable") // stable | beta
+  minSupported Boolean  @default(false) @map("min_supported")
+  releaseNotes String?  @map("release_notes")
+  releasedAt   DateTime @default(now()) @map("released_at")
+  // Desktop installer binary stored in the private `releases` bucket.
+  installerKey  String? @map("installer_key") // Storage object key
+  installerName String? @map("installer_name") // original filename (e.g. ReturnGenie-Setup-0.1.0.exe)
+  installerSize Int?    @map("installer_size") // bytes
+
+  @@map("app_versions")
+}
+
+model AuditLog {
+  id      String        @id @default(uuid())
+  orgId   String?       @map("org_id")
+  actorId String?       @map("actor_id")
+  action  String // "license.update", "device.revoke", ...
+  target  String?
+  meta    Json?
+  ts      DateTime      @default(now())
+  org     Organization? @relation(fields: [orgId], references: [id])
+
+  @@index([orgId, ts])
+  @@map("audit_logs")
+}
+
+enum OrgStatus {
+  ACTIVE
+  SUSPENDED
+  DEACTIVATED
+}
+
+enum UserStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum Role {
+  SUPERADMIN
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum DeviceStatus {
+  ACTIVE
+  REVOKED
+}
+
+enum LicenseStatus {
+  ACTIVE
+  EXPIRED
+  CANCELLED
+}
+
+enum Marketplace {
+  MYNTRA
+  FLIPKART
+}
+
+enum SyncState {
+  QUEUED
+  RUNNING
+  DOWNLOADING
+  PROCESSING
+  UPLOADING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+}
+
+enum LogLevel {
+  INFO
+  WARN
+  ERROR
+}
+
+enum RowStatus {
+  SUCCESS
+  FAILED
+  SKIPPED
+}

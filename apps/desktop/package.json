@@ -1,0 +1,45 @@
+{
+  "name": "@rg/desktop",
+  "version": "0.1.2",
+  "private": true,
+  "type": "module",
+  "description": "Return Genie — marketplace return reconciliation desktop app.",
+  "author": "Increff",
+  "main": "./out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "build:win": "pnpm --filter @rg/shared build && pnpm --filter @rg/automation build && node scripts/bundle-browser.mjs && electron-vite build && electron-builder --win --publish never",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "clean": "rimraf out dist .vite"
+  },
+  "dependencies": {
+    "@rg/automation": "workspace:*",
+    "@rg/shared": "workspace:*",
+    "@supabase/supabase-js": "^2.45.0",
+    "dotenv": "^16.4.5",
+    "electron-updater": "^6.3.0",
+    "keytar": "^7.9.0",
+    "node-machine-id": "^1.1.12",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.26.0",
+    "zod": "^3.23.8",
+    "zustand": "^4.5.5"
+  },
+  "devDependencies": {
+    "@types/node": "^20.16.0",
+    "@types/react": "^18.3.5",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "autoprefixer": "^10.4.20",
+    "electron": "^32.0.0",
+    "electron-builder": "^25.0.5",
+    "electron-vite": "^2.3.0",
+    "postcss": "^8.4.45",
+    "rimraf": "^6.0.1",
+    "tailwindcss": "^3.4.10",
+    "typescript": "^5.6.2",
+    "vite": "^5.4.0"
+  }
+}

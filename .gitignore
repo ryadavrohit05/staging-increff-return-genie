@@ -1,0 +1,22 @@
+node_modules/
+dist/
+out/
+.vite/
+.turbo/
+*.log
+.env
+.env.*
+!.env.example
+coverage/
+.DS_Store
+# Electron build output
+apps/desktop/release/
+apps/desktop/dist/
+# Bundled Playwright Chromium (downloaded at build time, not committed)
+apps/desktop/pw-browsers/
+# Local automation artifacts
+downloads/
+debug/
+screenshots/
+# Prisma
+apps/backend/prisma/*.db

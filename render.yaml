@@ -1,0 +1,97 @@
+# Render blueprint for the Return Genie backend API.
+# In Render: New → Blueprint → connect this repo → it reads this file.
+# Set every `sync: false` var in the Render dashboard (copy from apps/backend/.env).
+services:
+  - type: web
+    name: return-genie-api
+    runtime: node
+    plan: free
+    region: singapore # closest Render region to Supabase ap-south-1
+    branch: main
+    healthCheckPath: /health
+    buildCommand: >-
+      corepack enable &&
+      NODE_ENV=development pnpm install --frozen-lockfile &&
+      pnpm --filter @rg/shared build &&
+      pnpm --filter @rg/backend prisma:generate &&
+      pnpm --filter @rg/backend build &&
+      pnpm --filter @rg/backend exec prisma migrate deploy
+    startCommand: node apps/backend/dist/index.js
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # CORS — admin portal URL on Vercel: https://return-genie-admin.vercel.app
+      - key: CORS_ORIGINS
+        sync: false
+      # Supabase Postgres
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+      # Supabase
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_JWT_SECRET
+        sync: false
+      # External CIMS (Adidas) + encryption key
+      - key: EXTERNAL_API_CLIENT
+        sync: false
+      - key: EXTERNAL_API_HOST_TEMPLATE
+        value: https://{client}.omni.increff.com
+      - key: EXTERNAL_API_DOMAIN_TEMPLATE
+        value: "{client}-oltp"
+      - key: EXTERNAL_API_RETURN_ORDERS_PATH
+        value: /cims/import/returnOrders
+      - key: EXTERNAL_API_USERNAME
+        sync: false
+      - key: EXTERNAL_API_PASSWORD
+        sync: false
+      - key: EXTERNAL_API_ENC_KEY
+        sync: false
+      # CIMS payload params
+      - key: CIMS_OMS_LOCATION_ID
+        sync: false
+      - key: CIMS_FULFILLMENT_LOCATION_CODE
+        sync: false
+      - key: CIMS_CLIENT_ID
+        sync: false
+      - key: CIMS_CHANNEL_ID
+        value: MYNTRAV4
+      - key: CIMS_SUBMIT_CONCURRENCY
+        value: "5"
+      # Webget dedup
+      - key: WEBGET_URL
+        value: https://saas.increff.com/webget/in/api/app/sql/result
+      - key: WEBGET_SCHEMA
+        value: cims
+      - key: WEBGET_DB_ID
+        sync: false
+      - key: WEBGET_TABLE
+        value: cims_return_order_pojo
+      - key: WEBGET_ID_COLUMN
+        value: channel_order_id
+      - key: WEBGET_CHANNEL_COLUMN
+        value: channel_id
+      - key: WEBGET_BATCH_SIZE
+        value: "3000"
+      - key: WEBGET_AUTH_HEADERS
+        sync: false
+      # Licensing / versioning
+      - key: OFFLINE_GRACE_SECONDS
+        value: "259200"
+      - key: MIN_SUPPORTED_VERSION
+        value: 0.1.0
+      # Storage buckets
+      - key: STORAGE_BUCKET_REPORTS
+        value: reports
+      - key: STORAGE_BUCKET_RESULTS
+        value: results
+      - key: STORAGE_BUCKET_SCREENSHOTS
+        value: screenshots
+      - key: STORAGE_BUCKET_RELEASES
+        value: releases

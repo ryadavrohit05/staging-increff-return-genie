@@ -1,0 +1,24 @@
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import { fileURLToPath, URL } from 'node:url';
+
+// @rg/admin — Vite SPA served by Vercel in production, `vite dev` locally.
+export default defineConfig({
+  plugins: [react()],
+  resolve: {
+    alias: {
+      '@': fileURLToPath(new URL('./src', import.meta.url)),
+    },
+  },
+  server: {
+    port: 5174,
+    strictPort: false,
+  },
+  preview: {
+    port: 5174,
+  },
+  build: {
+    outDir: 'dist',
+    sourcemap: true,
+  },
+});

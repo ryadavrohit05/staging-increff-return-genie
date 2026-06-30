@@ -1,0 +1,65 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body,
+  #root {
+    @apply h-full;
+  }
+  body {
+    @apply bg-slate-100 text-slate-800 antialiased;
+  }
+
+  /*
+   * Accessibility: collapse all CSS transitions/animations when the user prefers
+   * reduced motion. This complements <MotionProvider reducedMotion="user">, which
+   * handles all Framer Motion animations — together they cover JS- and CSS-driven
+   * motion so the opt-out is complete.
+   */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer components {
+  /*
+   * Buttons/inputs carry transform + color transitions for tactile micro-
+   * interactions (press = subtle scale-down). Transform/opacity only — no layout.
+   */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium
+      transition-[color,background-color,box-shadow,transform] duration-150 ease-out
+      focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-1
+      active:scale-[0.98]
+      disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100;
+  }
+  .btn-primary {
+    @apply btn bg-brand-600 text-white hover:bg-brand-700;
+  }
+  .btn-secondary {
+    @apply btn border border-slate-300 bg-white text-slate-700 hover:bg-slate-50;
+  }
+  .btn-danger {
+    @apply btn bg-red-600 text-white hover:bg-red-700;
+  }
+  .input {
+    @apply w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm
+      transition-[border-color,box-shadow] duration-150 ease-out
+      focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500;
+  }
+  .label {
+    @apply mb-1 block text-sm font-medium text-slate-700;
+  }
+  .card {
+    @apply rounded-lg border border-slate-200 bg-white shadow-sm;
+  }
+}

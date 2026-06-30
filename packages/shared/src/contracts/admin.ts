@@ -1,0 +1,87 @@
+import { z } from 'zod';
+import { OrgStatus, LicenseStatus, Role } from './common.js';
+
+export const CreateOrgInput = z.object({
+  name: z.string().min(2),
+  slug: z.string().regex(/^[a-z0-9-]+$/),
+  maxDevices: z.number().int().positive().default(2),
+  ownerEmail: z.string().email(),
+  // The super-admin sets the owner's login password directly at creation.
+  password: z.string().min(8),
+});
+export type CreateOrgInput = z.infer<typeof CreateOrgInput>;
+
+export const OrgSummary = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  slug: z.string(),
+  status: OrgStatus,
+  maxDevices: z.number().int(),
+  userCount: z.number().int(),
+  deviceCount: z.number().int(),
+  license: z
+    .object({
+      status: LicenseStatus,
+      plan: z.string(),
+      validUntil: z.string().datetime(),
+    })
+    .nullable(),
+  createdAt: z.string().datetime(),
+});
+export type OrgSummary = z.infer<typeof OrgSummary>;
+
+export const UpdateOrgStatusInput = z.object({ status: OrgStatus });
+export type UpdateOrgStatusInput = z.infer<typeof UpdateOrgStatusInput>;
+
+export const UpdateLicenseInput = z.object({
+  status: LicenseStatus.optional(),
+  plan: z.string().optional(),
+  maxDevices: z.number().int().positive().optional(),
+  validUntil: z.string().datetime().optional(),
+});
+export type UpdateLicenseInput = z.infer<typeof UpdateLicenseInput>;
+
+export const PublishVersionInput = z.object({
+  version: z.string(),
+  channel: z.enum(['stable', 'beta']).default('stable'),
+  minSupported: z.boolean().default(false),
+  releaseNotes: z.string().optional(),
+});
+export type PublishVersionInput = z.infer<typeof PublishVersionInput>;
+
+export const InviteUserInput = z.object({
+  email: z.string().email(),
+  role: Role.default('MEMBER'),
+});
+export type InviteUserInput = z.infer<typeof InviteUserInput>;
+
+/**
+ * Per-organization external upload-API (Increff CIMS) configuration.
+ *
+ * Slug-driven: the URL (`https://{client}.omni.increff.com`) and domain
+ * (`{client}-oltp`) are derived from `clientSlug`. The username is a shared
+ * constant unless `authUsername` is provided as an override. The password is
+ * write-only — sent once, encrypted at rest, NEVER returned (see the View).
+ */
+export const ExternalApiConfigInput = z.object({
+  clientSlug: z
+    .string()
+    .min(1)
+    .regex(/^[a-z0-9-]+$/, 'lowercase letters, digits and hyphens only'), // e.g. adidasgcc
+  authUsername: z.string().min(1).optional(), // optional override of the shared username
+  authPassword: z.string().min(1),
+  returnOrdersPath: z.string().default('/cims/import/returnOrders'),
+});
+export type ExternalApiConfigInput = z.infer<typeof ExternalApiConfigInput>;
+
+/** Safe view returned to the admin portal — password is masked, never sent back. */
+export const ExternalApiConfigView = z.object({
+  clientSlug: z.string(),
+  baseUrl: z.string(), // derived, for display
+  authDomainName: z.string(), // derived, for display
+  authUsername: z.string(), // effective (override or shared)
+  returnOrdersPath: z.string(),
+  passwordSet: z.boolean(),
+  updatedAt: z.string().datetime(),
+});
+export type ExternalApiConfigView = z.infer<typeof ExternalApiConfigView>;

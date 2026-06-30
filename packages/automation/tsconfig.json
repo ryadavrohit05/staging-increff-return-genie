@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    // DOM lib is required because page.evaluate()/locator.evaluate() callbacks
+    // execute in the browser and reference DOM globals (window, document,
+    // HTMLElement, MouseEvent, ...). They are type-checked in this project even
+    // though they run remotely in Chromium.
+    "lib": ["ES2022", "DOM"],
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts"]
+}

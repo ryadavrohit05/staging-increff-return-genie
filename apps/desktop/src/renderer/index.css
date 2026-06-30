@@ -1,0 +1,221 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================================
+   Ported premium glass + dark-terminal aesthetic from the
+   reference dashboard (D:\Using VNC\client\styles.css), expressed
+   as @layer components so JSX can use semantic class names.
+   ============================================================ */
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply font-sans text-ink-primary antialiased;
+    background: linear-gradient(-45deg, #e0e7ff, #f3e8ff, #fce7f3, #e0f2fe);
+    background-size: 400% 400%;
+    @apply animate-gradient;
+    min-height: 100vh;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 99px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+  }
+}
+
+@layer components {
+  /* ── Glass card ─────────────────────────────────────────── */
+  .rg-card {
+    background: rgba(255, 255, 255, 0.82);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    @apply rounded-lg border border-white/60 shadow-md overflow-hidden;
+  }
+  .rg-card-header {
+    @apply flex items-center justify-between px-6 py-4 border-b;
+    border-color: rgba(226, 232, 240, 0.6);
+    background: rgba(255, 255, 255, 0.5);
+  }
+  .rg-card-title {
+    @apply flex items-center gap-2.5 text-[0.82rem] font-bold uppercase tracking-[0.06em] text-ink-primary;
+  }
+  .rg-card-title-icon {
+    @apply flex h-8 w-8 items-center justify-center rounded-sm text-[0.85rem];
+    background: rgba(79, 70, 229, 0.12);
+    color: #4f46e5;
+  }
+  .rg-card-body {
+    @apply p-6;
+  }
+
+  /* ── Topbar ─────────────────────────────────────────────── */
+  .rg-topbar {
+    @apply sticky top-0 z-[100] border-b;
+    background: rgba(255, 255, 255, 0.72);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-color: rgba(255, 255, 255, 0.4);
+    box-shadow: 0 1px 12px rgba(0, 0, 0, 0.04);
+  }
+
+  .rg-status-badge {
+    @apply inline-flex items-center gap-1.5 rounded-full border-[1.5px] px-3 py-1 text-[0.72rem] font-bold uppercase tracking-[0.04em];
+  }
+  .rg-status-dot {
+    @apply h-[7px] w-[7px] rounded-full bg-current;
+  }
+  .rg-status-dot.pulse {
+    @apply animate-dotPulse;
+  }
+
+  /* ── Form controls ──────────────────────────────────────── */
+  .rg-label {
+    @apply mb-2 block text-[0.72rem] font-bold uppercase tracking-[0.06em] text-ink-secondary;
+  }
+  .rg-input,
+  .rg-select {
+    @apply w-full rounded-sm border-[1.5px] border-slate-200 px-3.5 py-2.5 text-sm text-ink-primary outline-none transition;
+    background: rgba(255, 255, 255, 0.9);
+  }
+  .rg-input:focus,
+  .rg-select:focus {
+    @apply border-primary shadow-glow -translate-y-px;
+  }
+  .rg-error {
+    @apply mt-1.5 flex items-center gap-1.5 text-[0.72rem] text-danger;
+  }
+
+  /* ── Buttons ────────────────────────────────────────────── */
+  .rg-btn {
+    @apply inline-flex cursor-pointer items-center gap-2 rounded-sm px-5 py-2.5 text-[0.78rem] font-bold uppercase tracking-[0.05em] transition;
+  }
+  .rg-btn:disabled {
+    @apply cursor-not-allowed opacity-50;
+  }
+  .rg-btn-primary {
+    @apply text-white;
+    background: linear-gradient(135deg, #4f46e5, #4338ca);
+    box-shadow: 0 4px 14px rgba(79, 70, 229, 0.35);
+  }
+  .rg-btn-primary:hover:not(:disabled) {
+    @apply -translate-y-0.5;
+    box-shadow: 0 8px 24px rgba(79, 70, 229, 0.35);
+  }
+  .rg-btn-danger {
+    @apply border-[1.5px] text-danger;
+    background: rgba(239, 68, 68, 0.12);
+    border-color: rgba(239, 68, 68, 0.25);
+  }
+  .rg-btn-danger:hover:not(:disabled) {
+    @apply bg-danger text-white;
+  }
+  .rg-btn-ghost {
+    @apply border-[1.5px] border-slate-200 bg-transparent text-ink-secondary;
+  }
+  .rg-btn-ghost:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.7);
+  }
+
+  /* ── Progress ───────────────────────────────────────────── */
+  .rg-progress-track {
+    @apply h-2 overflow-hidden rounded-full bg-slate-200;
+  }
+  .rg-progress-fill {
+    @apply h-full rounded-full animate-shimmer;
+    background: linear-gradient(90deg, #4f46e5, #06b6d4);
+    background-size: 200% 100%;
+    transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  /* ── Timeline ───────────────────────────────────────────── */
+  .rg-timeline-item {
+    @apply relative flex gap-3.5 rounded-md px-3.5 py-3 transition;
+  }
+  .rg-timeline-item.is-pending {
+    @apply opacity-60;
+  }
+  .rg-timeline-item.is-active {
+    background: rgba(79, 70, 229, 0.12);
+    @apply translate-x-[3px] border border-primary/20;
+  }
+  .rg-timeline-item.is-done {
+    background: rgba(16, 185, 129, 0.12);
+    @apply border border-success/20;
+  }
+  .rg-timeline-item.is-error {
+    background: rgba(239, 68, 68, 0.12);
+    @apply border border-danger/20;
+  }
+  .rg-step-circle {
+    @apply flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full border-2 border-slate-200 bg-slate-100 text-[0.72rem] font-bold text-ink-muted transition;
+  }
+  .rg-timeline-item.is-active .rg-step-circle {
+    @apply border-primary bg-primary text-white;
+    box-shadow: 0 0 12px rgba(79, 70, 229, 0.35);
+  }
+  .rg-timeline-item.is-done .rg-step-circle {
+    @apply border-success bg-success text-white;
+  }
+  .rg-timeline-item.is-error .rg-step-circle {
+    @apply border-danger bg-danger text-white;
+  }
+  .rg-step-title {
+    @apply text-[0.82rem] font-semibold text-ink-secondary;
+  }
+  .rg-timeline-item.is-active .rg-step-title {
+    @apply font-bold text-ink-primary;
+  }
+  .rg-step-desc {
+    @apply mt-0.5 text-[0.72rem] text-ink-muted;
+  }
+
+  /* ── Terminal ───────────────────────────────────────────── */
+  .rg-terminal {
+    @apply overflow-hidden rounded-md border;
+    background: #0d1117;
+    border-color: #21262d;
+  }
+  .rg-terminal-bar {
+    @apply flex items-center justify-between border-b px-4 py-2.5;
+    background: #161b22;
+    border-color: #21262d;
+  }
+  .rg-terminal-body {
+    @apply h-[340px] overflow-y-auto px-4 py-3.5 font-mono text-[0.72rem] leading-relaxed;
+  }
+  .rg-log {
+    @apply m-0 whitespace-pre-wrap break-all;
+  }
+
+  /* ── Stat pills ─────────────────────────────────────────── */
+  .rg-stat {
+    @apply min-w-[150px] rounded-md border-[1.5px] px-5 py-3.5 text-left;
+  }
+  .rg-stat-label {
+    @apply mb-1 text-[0.68rem] font-bold uppercase tracking-[0.06em] text-ink-muted;
+  }
+  .rg-stat-val {
+    @apply text-[1.75rem] font-extrabold text-ink-primary;
+  }
+
+  /* ── Result panels ──────────────────────────────────────── */
+  .rg-result-icon {
+    @apply mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-full text-3xl text-white;
+  }
+}
